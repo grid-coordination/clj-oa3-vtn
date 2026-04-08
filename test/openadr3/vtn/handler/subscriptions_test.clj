@@ -5,16 +5,27 @@
             [openadr3.vtn.handler.subscriptions :as subs]))
 
 (def ^:dynamic *storage* nil)
+(def ^:dynamic *notifier* nil)
+
+(defrecord StubNotifier []
+  component/Lifecycle
+  (start [this] this)
+  (stop [this] this))
 
 (defn storage-fixture [f]
-  (binding [*storage* (component/start (mem/new-atom-storage))]
+  (binding [*storage* (component/start (mem/new-atom-storage))
+            *notifier* (->StubNotifier)]
     (try (f)
          (finally (component/stop *storage*)))))
 
 (use-fixtures :each storage-fixture)
 
 (defn- invoke [handler-fn & [request-overrides]]
-  ((handler-fn *storage*) (merge {:query-params {} :path-params {} :body {}} request-overrides)))
+  (let [request (merge {:query-params {} :path-params {} :body {}} request-overrides)]
+    (try
+      ((handler-fn *storage* *notifier*) request)
+      (catch clojure.lang.ArityException _
+        ((handler-fn *storage*) request)))))
 
 (defn- sub-body [program-id]
   {:programID program-id

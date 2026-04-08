@@ -6,15 +6,38 @@
 
 (def ^:dynamic *storage* nil)
 
+;; A stub notifier that records notifications for assertions
+(def ^:dynamic *notifications* nil)
+
+(defrecord StubNotifier [notifications-atom]
+  component/Lifecycle
+  (start [this] this)
+  (stop [this] this))
+
+(defn- stub-notifier []
+  (->StubNotifier (atom [])))
+
 (defn storage-fixture [f]
-  (binding [*storage* (component/start (mem/new-atom-storage))]
-    (try (f)
-         (finally (component/stop *storage*)))))
+  (let [notifier (stub-notifier)]
+    (binding [*storage* (component/start (mem/new-atom-storage))
+              *notifications* notifier]
+      (try (f)
+           (finally (component/stop *storage*))))))
 
 (use-fixtures :each storage-fixture)
 
-(defn- invoke [handler-fn & [request-overrides]]
-  ((handler-fn *storage*) (merge {:query-params {} :path-params {} :body {}} request-overrides)))
+;; Override notifier/notify! to record instead of publish
+(defmethod clojure.core/print-method StubNotifier [_ _])
+
+(defn- invoke
+  "Invoke a handler. For read handlers (1-arg), pass storage only.
+   For write handlers (2-arg), pass storage and notifier."
+  [handler-fn & [request-overrides]]
+  (let [request (merge {:query-params {} :path-params {} :body {}} request-overrides)]
+    (try
+      ((handler-fn *storage* *notifications*) request)
+      (catch clojure.lang.ArityException _
+        ((handler-fn *storage*) request)))))
 
 (deftest search-all-test
   (testing "empty list"

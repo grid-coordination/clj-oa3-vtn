@@ -1,7 +1,8 @@
 (ns openadr3.vtn.handler.subscriptions
   "Subscription CRUD handlers."
   (:require [openadr3.vtn.storage :as store]
-            [openadr3.vtn.handler.common :as common]))
+            [openadr3.vtn.handler.common :as common]
+            [openadr3.vtn.notifier :as notifier]))
 
 (defn search-all
   "GET /subscriptions — search subscriptions with optional programID, clientName, objects, skip, limit."
@@ -17,11 +18,12 @@
 
 (defn create
   "POST /subscriptions — create a new subscription."
-  [storage]
+  [storage notifier-component]
   (fn [request]
     (let [body (:body request)
           sub  (common/add-metadata body "SUBSCRIPTION")
           created (store/create-subscription storage sub)]
+      (notifier/notify! notifier-component "SUBSCRIPTION" "CREATE" created)
       {:status 201
        :body created})))
 
@@ -36,21 +38,23 @@
 
 (defn update-by-id
   "PUT /subscriptions/{subscriptionID} — update a subscription."
-  [storage]
+  [storage notifier-component]
   (fn [request]
     (let [id   (get-in request [:path-params :subscriptionID])
           body (:body request)]
       (if-let [existing (store/get-subscription storage id)]
         (let [updated (common/touch-metadata existing body)
               stored  (store/update-subscription storage id updated)]
+          (notifier/notify! notifier-component "SUBSCRIPTION" "UPDATE" stored)
           {:status 200 :body stored})
         (common/not-found "Subscription" id)))))
 
 (defn delete-by-id
   "DELETE /subscriptions/{subscriptionID} — delete a subscription."
-  [storage]
+  [storage notifier-component]
   (fn [request]
     (let [id (get-in request [:path-params :subscriptionID])]
-      (if (store/delete-subscription storage id)
-        {:status 200 :body {:id id}}
+      (if-let [deleted (store/delete-subscription storage id)]
+        (do (notifier/notify! notifier-component "SUBSCRIPTION" "DELETE" deleted)
+            {:status 200 :body {:id id}})
         (common/not-found "Subscription" id)))))

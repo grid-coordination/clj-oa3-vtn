@@ -3,4 +3,10 @@
  :context-path "/openadr3/3.1.0"
  :mqtt-broker-url "tcp://localhost:1883"
  :mqtt-retained false
- :storage-backend :memory}
+ :storage-backend :memory
+
+ ;; Per-port notifier configuration.
+ ;; Controls what GET /notifiers returns on each port.
+ :ven-notifiers {:MQTT {:authentication {:method "ANONYMOUS"}}}
+ :bl-notifiers  {:MQTT {:authentication {:method "ANONYMOUS"}}
+                 :WEBHOOK true}}

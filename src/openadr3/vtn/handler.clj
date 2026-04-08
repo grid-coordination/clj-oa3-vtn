@@ -41,7 +41,7 @@
    [:put "/subscriptions/{subscriptionID}"]    (subs/update-by-id storage notifier)
    [:delete "/subscriptions/{subscriptionID}"] (subs/delete-by-id storage notifier)
 
-   [:get "/notifiers"]                         (notifiers/list-all config)
+   [:get "/notifiers"]                         (notifiers/list-all config (:bl-notifiers config))
    [:get "/notifiers/mqtt/topics/programs"]                        (topics/programs-topics)
    [:get "/notifiers/mqtt/topics/programs/{programID}"]            (topics/program-topics)
    [:get "/notifiers/mqtt/topics/programs/{programID}/events"]     (topics/program-events-topics)
@@ -73,7 +73,7 @@
    [:put "/subscriptions/{subscriptionID}"]    (subs/update-by-id storage notifier)
    [:delete "/subscriptions/{subscriptionID}"] (subs/delete-by-id storage notifier)
 
-   [:get "/notifiers"]                         (notifiers/list-all config)
+   [:get "/notifiers"]                         (notifiers/list-all config (:ven-notifiers config))
    [:get "/notifiers/mqtt/topics/programs"]                        (topics/programs-topics)
    [:get "/notifiers/mqtt/topics/programs/{programID}"]            (topics/program-topics)
    [:get "/notifiers/mqtt/topics/programs/{programID}/events"]     (topics/program-events-topics)

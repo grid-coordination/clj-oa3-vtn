@@ -4,8 +4,8 @@
 
 (def test-config {:mqtt-broker-url "tcp://localhost:1883"})
 
-(deftest list-all-test
-  (let [handler (notifiers/list-all test-config)
+(deftest bl-notifiers-test
+  (let [handler (notifiers/list-all test-config {:MQTT {} :WEBHOOK true})
         resp (handler {})]
 
     (testing "returns 200"
@@ -19,3 +19,24 @@
         (is (= ["tcp://localhost:1883"] (:URIS mqtt)))
         (is (= "JSON" (:serialization mqtt)))
         (is (= "ANONYMOUS" (get-in mqtt [:authentication :method])))))))
+
+(deftest ven-notifiers-mqtt-only-test
+  (let [handler (notifiers/list-all test-config {:MQTT {:authentication {:method "ANONYMOUS"}}})
+        resp (handler {})]
+
+    (testing "returns 200"
+      (is (= 200 (:status resp))))
+
+    (testing "WEBHOOK is false"
+      (is (false? (get-in resp [:body :WEBHOOK]))))
+
+    (testing "MQTT present"
+      (is (some? (get-in resp [:body :MQTT]))))))
+
+(deftest default-notifiers-test
+  (let [handler (notifiers/list-all test-config nil)
+        resp (handler {})]
+
+    (testing "defaults include both WEBHOOK and MQTT"
+      (is (true? (get-in resp [:body :WEBHOOK])))
+      (is (some? (get-in resp [:body :MQTT]))))))

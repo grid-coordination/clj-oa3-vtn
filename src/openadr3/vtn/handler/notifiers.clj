@@ -1,13 +1,35 @@
 (ns openadr3.vtn.handler.notifiers
-  "GET /notifiers handler.")
+  "GET /notifiers handler.
+
+  The response is built from per-port :notifiers config, which specifies
+  which notification bindings this port advertises. Example config:
+
+    {:notifiers {:MQTT {:authentication {:method \"ANONYMOUS\"}}}}
+
+  MQTT broker URL and serialization are filled in automatically from
+  the top-level config. Set :notifiers to nil or omit :WEBHOOK to
+  suppress webhook advertising on a port.")
+
+(defn- build-mqtt-binding
+  "Build the MQTT notifier binding object from config."
+  [config mqtt-opts]
+  {:URIS [(:mqtt-broker-url config)]
+   :serialization "JSON"
+   :authentication (or (:authentication mqtt-opts)
+                       {:method "ANONYMOUS"})})
 
 (defn list-all
-  "GET /notifiers — list all notifier bindings supported by the server."
-  [config]
-  (fn [_request]
-    (let [broker-url (:mqtt-broker-url config)]
-      {:status 200
-       :body {:WEBHOOK true
-              :MQTT {:URIS [broker-url]
-                     :serialization "JSON"
-                     :authentication {:method "ANONYMOUS"}}}})))
+  "GET /notifiers — list all notifier bindings supported by this port.
+
+  port-notifiers is a map describing which notifiers to advertise:
+    {:MQTT {...}  :WEBHOOK true}
+  If nil, defaults to {:MQTT {} :WEBHOOK true} for backward compatibility."
+  [config port-notifiers]
+  (let [notifiers (or port-notifiers {:MQTT {} :WEBHOOK true})]
+    (fn [_request]
+      (let [body (cond-> {;; WEBHOOK is required by the OA3 spec schema.
+                         ;; Set to false when not supported (see VTN-t1i).
+                          :WEBHOOK (boolean (:WEBHOOK notifiers))}
+                   (:MQTT notifiers)
+                   (assoc :MQTT (build-mqtt-binding config (:MQTT notifiers))))]
+        {:status 200 :body body}))))

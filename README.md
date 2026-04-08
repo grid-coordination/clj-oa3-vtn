@@ -25,7 +25,7 @@ Both ports share the same storage and MQTT notification system.
 - **Events** — CRUD with programID foreign key validation
 - **Subscriptions** — CRUD with auto-assigned clientID
 - **MQTT Notifications** — CREATE/UPDATE/DELETE published to topic hierarchy
-- **Notifier Discovery** — `GET /notifiers` returns MQTT broker config
+- **Notifier Discovery** — `GET /notifiers` returns per-port notifier config (VEN: MQTT only, BL: MQTT + WEBHOOK)
 - **MQTT Topic Discovery** — All 12 topic endpoints per OpenADR 3.1.0
 - **Auth Stubs** — `GET /auth/server` returns discovery, `POST /auth/token` returns 501
 - **Pagination** — skip/limit on all search endpoints (max 50)
@@ -112,8 +112,16 @@ Default config in `resources/config.edn`:
  :context-path "/openadr3/3.1.0"
  :mqtt-broker-url "tcp://localhost:1883"
  :mqtt-retained false
- :storage-backend :memory}
+ :storage-backend :memory
+
+ ;; Per-port notifier configuration.
+ ;; Controls what GET /notifiers returns on each port.
+ :ven-notifiers {:MQTT {:authentication {:method "ANONYMOUS"}}}
+ :bl-notifiers  {:MQTT {:authentication {:method "ANONYMOUS"}}
+                 :WEBHOOK true}}
 ```
+
+The `:ven-notifiers` and `:bl-notifiers` maps control what `GET /notifiers` returns on each port. The VEN port advertises MQTT only (no webhook support for public price consumers). The BL port advertises both. MQTT broker URL and serialization are filled in automatically from `:mqtt-broker-url`.
 
 Override any key by passing a map to `(start {...})` in the REPL.
 
@@ -121,11 +129,14 @@ Override any key by passing a map to `(start {...})` in the REPL.
 
 The VTN uses [Stuart Sierra's Component](https://github.com/stuartsierra/component) for lifecycle management.
 
+```clojure
+(start)   ;; creates and starts all components, prints startup banner
+(stop)    ;; stops all components, releases ports
+(reset)   ;; stop + start with fresh state (new atom, new connections)
+(status)  ;; print system health: servers, MQTT, storage counts
 ```
-(start)  → creates and starts all components (config, storage, MQTT, notifier, 2 HTTP servers)
-(stop)   → stops all components, releases ports
-(reset)  → stop + start with fresh state
-```
+
+`(start)` prints a banner showing the bound ports and MQTT broker. If a port is already in use, it throws immediately with a clear error message rather than failing silently.
 
 The Component system map:
 
@@ -148,7 +159,7 @@ Port **7892** (ecosystem convention: clj-oa3=7889, clj-oa3-client=7890, clj-oa3-
 
 ```bash
 clojure -M:test
-# 36 tests, 162 assertions
+# 38 tests, 167 assertions
 ```
 
 ### Integration Tests

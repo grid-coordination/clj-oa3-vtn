@@ -20,7 +20,9 @@
   "POST /subscriptions — create a new subscription."
   [storage notifier-component]
   (fn [request]
-    (let [body (:body request)
+    (let [body (cond-> (:body request)
+                 (not (:clientID (:body request)))
+                 (assoc :clientID (or (:clientName (:body request)) "anonymous")))
           sub  (common/add-metadata body "SUBSCRIPTION")
           created (store/create-subscription storage sub)]
       (notifier/notify! notifier-component "SUBSCRIPTION" "CREATE" created)

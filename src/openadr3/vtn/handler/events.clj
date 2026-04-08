@@ -9,22 +9,27 @@
   [storage]
   (fn [request]
     (let [params (:query-params request)
+          gp   (partial common/get-param params)
           opts (merge (common/parse-pagination params)
-                      (when-let [pid (:programID params)] {:programID pid})
-                      (when-let [t (:targets params)] {:targets t}))]
+                      (when-let [pid (gp :programID)] {:programID pid})
+                      (when-let [t (gp :targets)] {:targets t}))]
       {:status 200
        :body (store/list-events storage opts)})))
 
 (defn create
-  "POST /events — create a new event."
+  "POST /events — create a new event.
+   Validates that programID references an existing program."
   [storage notifier-component]
   (fn [request]
-    (let [body  (:body request)
-          event (common/add-metadata body "EVENT")
-          created (store/create-event storage event)]
-      (notifier/notify! notifier-component "EVENT" "CREATE" created)
-      {:status 201
-       :body created})))
+    (let [body      (:body request)
+          program-id (:programID body)]
+      (if (and program-id (nil? (store/get-program storage program-id)))
+        (common/bad-request (str "Program " program-id " not found"))
+        (let [event   (common/add-metadata body "EVENT")
+              created (store/create-event storage event)]
+          (notifier/notify! notifier-component "EVENT" "CREATE" created)
+          {:status 201
+           :body created})))))
 
 (defn get-by-id
   "GET /events/{eventID} — fetch an event by ID."
@@ -55,5 +60,5 @@
     (let [id (get-in request [:path-params :eventID])]
       (if-let [deleted (store/delete-event storage id)]
         (do (notifier/notify! notifier-component "EVENT" "DELETE" deleted)
-            {:status 200 :body {:id id}})
+            {:status 200 :body deleted})
         (common/not-found "Event" id)))))

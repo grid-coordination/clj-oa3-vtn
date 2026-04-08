@@ -58,13 +58,14 @@
       (is (= 3 (count (:body (invoke events/search-all))))))))
 
 (deftest update-and-delete-test
-  (let [resp (invoke events/create {:body {:programID "p1" :eventName "orig"}})
+  (let [prog (store/create-program *storage* (common/add-metadata {:programName "ud-prog"} "PROGRAM"))
+        resp (invoke events/create {:body {:programID (:id prog) :eventName "orig"}})
         id (get-in resp [:body :id])]
 
     (testing "update"
       (let [upd (invoke events/update-by-id
                         {:path-params {:eventID id}
-                         :body {:programID "p1" :eventName "changed" :priority 1}})]
+                         :body {:programID (:id prog) :eventName "changed" :priority 1}})]
         (is (= 200 (:status upd)))
         (is (= "changed" (get-in upd [:body :eventName])))))
 

@@ -24,14 +24,16 @@
            :objectType object-type)))
 
 (defn touch-metadata
-  "Update modificationDateTime on an existing object.
-   Preserves id, createdDateTime, and objectType from the stored version."
+  "Merge update body into stored object, preserving metadata fields.
+   The update body overrides stored fields, but id, createdDateTime,
+   objectType are always preserved from stored. modificationDateTime
+   is set to now."
   [stored updated]
-  (assoc updated
-         :id (:id stored)
-         :createdDateTime (:createdDateTime stored)
-         :modificationDateTime (time/now-rfc3339)
-         :objectType (:objectType stored)))
+  (-> (merge stored updated)
+      (assoc :id (:id stored)
+             :createdDateTime (:createdDateTime stored)
+             :modificationDateTime (time/now-rfc3339)
+             :objectType (:objectType stored))))
 
 ;; --- Pagination ---
 
@@ -46,11 +48,27 @@
          (take limit)
          vec)))
 
+(defn- ->int
+  "Coerce a value to int. Handles strings, integers, and nil."
+  [v]
+  (cond
+    (nil? v) nil
+    (integer? v) v
+    (string? v) (parse-long v)
+    :else nil))
+
+(defn get-param
+  "Get a query param by keyword, falling back to string key.
+   Legba uses string keys for query params."
+  [params k]
+  (or (get params k) (get params (name k))))
+
 (defn parse-pagination
-  "Extract skip/limit from query params, coercing to integers."
+  "Extract skip/limit from query params, coercing to integers.
+   Handles both keyword and string keys (Legba uses string keys)."
   [query-params]
-  (let [skip  (some-> (:skip query-params) parse-long)
-        limit (some-> (:limit query-params) parse-long)]
+  (let [skip  (->int (get-param query-params :skip))
+        limit (->int (get-param query-params :limit))]
     (cond-> {}
       skip  (assoc :skip skip)
       limit (assoc :limit (min limit 50)))))
@@ -65,6 +83,15 @@
           :title "Not Found"
           :status 404
           :detail (str resource-type " " id " not found")}})
+
+(defn bad-request
+  "400 Bad Request response."
+  [detail]
+  {:status 400
+   :body {:type "about:blank"
+          :title "Bad Request"
+          :status 400
+          :detail detail}})
 
 (defn conflict
   "409 Conflict response."

@@ -20,18 +20,29 @@
            :body "{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404}"})))))
 
 (defn wrap-json-response
-  "Ensure response bodies that are maps or vectors are JSON-encoded.
-   Legba handles this for most spec-matched routes, but some responses
-   (e.g. via $ref'd response schemas) may pass through as raw maps."
+  "Ensure response bodies are JSON-encoded with proper Content-Type.
+   Legba serializes matched route bodies to JSON strings but does not
+   always set Content-Type. This middleware:
+   - Encodes map/vector bodies to JSON strings
+   - Sets Content-Type: application/json on all JSON responses"
   [handler]
   (fn [request]
     (let [resp (handler request)
           body (:body resp)]
-      (if (or (map? body) (sequential? body))
+      (cond
+        ;; Map or vector body — encode to JSON and set content-type
+        (or (map? body) (sequential? body))
         (-> resp
             (assoc :body (json/write-str body))
             (assoc-in [:headers "content-type"] "application/json"))
-        resp))))
+
+        ;; String body (Legba already serialized) — ensure content-type is set
+        (string? body)
+        (update resp :headers
+                (fn [h] (if (get h "content-type") h
+                            (assoc h "content-type" "application/json"))))
+
+        :else resp))))
 
 (defn wrap-request-logging
   "Log incoming requests at debug level."

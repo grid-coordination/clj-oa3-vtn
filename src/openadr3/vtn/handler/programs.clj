@@ -18,12 +18,17 @@
   "POST /programs — create a new program."
   [storage notifier-component]
   (fn [request]
-    (let [body (:body request)
-          program (common/add-metadata body "PROGRAM")
-          created (store/create-program storage program)]
-      (notifier/notify! notifier-component "PROGRAM" "CREATE" created)
-      {:status 201
-       :body created})))
+    (try
+      (let [body (:body request)
+            program (common/add-metadata body "PROGRAM")
+            created (store/create-program storage program)]
+        (notifier/notify! notifier-component "PROGRAM" "CREATE" created)
+        {:status 201
+         :body created})
+      (catch clojure.lang.ExceptionInfo e
+        (if (= :conflict (:type (ex-data e)))
+          (common/conflict (.getMessage e))
+          (throw e))))))
 
 (defn get-by-id
   "GET /programs/{programID} — fetch a program by ID."
@@ -54,5 +59,5 @@
     (let [id (get-in request [:path-params :programID])]
       (if-let [deleted (store/delete-program storage id)]
         (do (notifier/notify! notifier-component "PROGRAM" "DELETE" deleted)
-            {:status 200 :body {:id id}})
+            {:status 200 :body deleted})
         (common/not-found "Program" id)))))

@@ -50,7 +50,14 @@
     (get-in @state [:programs id]))
 
   (create-program [_ program]
-    (let [id (:id program)]
+    (let [id   (:id program)
+          name (:programName program)]
+      (when name
+        (let [existing (some #(when (= name (:programName %)) %) (vals (:programs @state)))]
+          (when existing
+            (throw (ex-info "Duplicate programName"
+                            {:type :conflict
+                             :detail (str "Program with name '" name "' already exists")})))))
       (swap! state assoc-in [:programs id] program)
       program))
 

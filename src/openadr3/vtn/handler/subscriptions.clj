@@ -9,10 +9,11 @@
   [storage]
   (fn [request]
     (let [params (:query-params request)
+          gp   (partial common/get-param params)
           opts (merge (common/parse-pagination params)
-                      (when-let [pid (:programID params)] {:programID pid})
-                      (when-let [cn (:clientName params)] {:clientName cn})
-                      (when-let [t (:targets params)] {:targets t}))]
+                      (when-let [pid (gp :programID)] {:programID pid})
+                      (when-let [cn (gp :clientName)] {:clientName cn})
+                      (when-let [t (gp :targets)] {:targets t}))]
       {:status 200
        :body (store/list-subscriptions storage opts)})))
 
@@ -58,5 +59,5 @@
     (let [id (get-in request [:path-params :subscriptionID])]
       (if-let [deleted (store/delete-subscription storage id)]
         (do (notifier/notify! notifier-component "SUBSCRIPTION" "DELETE" deleted)
-            {:status 200 :body {:id id}})
+            {:status 200 :body deleted})
         (common/not-found "Subscription" id)))))

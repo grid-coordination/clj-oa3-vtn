@@ -43,6 +43,33 @@
         (is (= 200 (:status get-resp)))
         (is (= (:id prog) (get-in get-resp [:body :programID])))))))
 
+(deftest create-event-with-price-intervals-test
+  (let [prog (store/create-program *storage*
+                                   (common/add-metadata
+                                    {:programName "price-prog"
+                                     :payloadDescriptors [{:objectType "EVENT_PAYLOAD_DESCRIPTOR"
+                                                           :payloadType "PRICE"
+                                                           :units "KWH"
+                                                           :currency "USD"}]}
+                                    "PROGRAM"))
+        resp (invoke events/create
+                     {:body {:programID (:id prog)
+                             :eventName "hourly-prices"
+                             :intervals [{:id 0
+                                          :payloads [{:type "PRICE" :values [0.25]}]}
+                                         {:id 1
+                                          :payloads [{:type "PRICE" :values [0.35]}]}]}})]
+
+    (testing "create returns 201 with intervals"
+      (is (= 201 (:status resp)))
+      (is (= 2 (count (get-in resp [:body :intervals])))))
+
+    (testing "round-trips through get"
+      (let [id (get-in resp [:body :id])
+            fetched (:body (invoke events/get-by-id {:path-params {:eventID id}}))]
+        (is (= 0.25 (get-in fetched [:intervals 0 :payloads 0 :values 0])))
+        (is (= 0.35 (get-in fetched [:intervals 1 :payloads 0 :values 0])))))))
+
 (deftest search-with-programID-filter-test
   (let [p1 (store/create-program *storage* (common/add-metadata {:programName "p1"} "PROGRAM"))
         p2 (store/create-program *storage* (common/add-metadata {:programName "p2"} "PROGRAM"))]

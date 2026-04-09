@@ -59,6 +59,23 @@
       (is (string? (get-in resp [:body :id])))
       (is (= "PROGRAM" (get-in resp [:body :objectType]))))))
 
+(deftest create-with-payload-descriptors-test
+  (testing "program with EVENT_PAYLOAD_DESCRIPTOR"
+    (let [resp (invoke programs/create
+                       {:body {:programName "PGE-EV2A"
+                               :payloadDescriptors
+                               [{:objectType "EVENT_PAYLOAD_DESCRIPTOR"
+                                 :payloadType "PRICE"
+                                 :units "KWH"
+                                 :currency "USD"}]}})]
+      (is (= 201 (:status resp)))
+      (is (= "PGE-EV2A" (get-in resp [:body :programName])))
+      (is (= 1 (count (get-in resp [:body :payloadDescriptors]))))
+      (is (= "EVENT_PAYLOAD_DESCRIPTOR"
+             (get-in resp [:body :payloadDescriptors 0 :objectType])))
+      (is (= "PRICE"
+             (get-in resp [:body :payloadDescriptors 0 :payloadType]))))))
+
 (deftest get-by-id-test
   (let [created (:body (invoke programs/create {:body {:programName "findme"}}))
         id (:id created)]

@@ -1761,6 +1761,9 @@ components:
               - $ref: '#/components/schemas/reportPayloadDescriptor'
             discriminator:
               propertyName: objectType
+              mapping:
+                EVENT_PAYLOAD_DESCRIPTOR: '#/components/schemas/eventPayloadDescriptor'
+                REPORT_PAYLOAD_DESCRIPTOR: '#/components/schemas/reportPayloadDescriptor'
           nullable: true
           default: null
         attributes:

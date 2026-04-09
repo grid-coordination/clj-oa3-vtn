@@ -24,6 +24,20 @@ This affects the `problem` schema's `status` field (line ~2626):
 +          exclusiveMaximum: 600
 ```
 
+## 3. `payloadDescriptors` discriminator mapping
+
+The `programRequest` schema uses `anyOf` with a `discriminator` on `objectType` to distinguish `eventPayloadDescriptor` from `reportPayloadDescriptor`. The discriminator values (`EVENT_PAYLOAD_DESCRIPTOR`, `REPORT_PAYLOAD_DESCRIPTOR`) don't match the schema reference names, so Legba (via networknt/json-schema-validator) can't resolve them without an explicit mapping.
+
+```diff
+             discriminator:
+               propertyName: objectType
++              mapping:
++                EVENT_PAYLOAD_DESCRIPTOR: '#/components/schemas/eventPayloadDescriptor'
++                REPORT_PAYLOAD_DESCRIPTOR: '#/components/schemas/reportPayloadDescriptor'
+```
+
+Without this, programs with `payloadDescriptors` (e.g. PRICE descriptors) are rejected by both request and response validation.
+
 ## Applying the patches
 
 When updating `resources/openadr3.yaml` from a new spec release:

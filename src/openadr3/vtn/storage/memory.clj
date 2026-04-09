@@ -48,8 +48,8 @@
       this
       (assoc this :state (make-state (:config config)))))
   (stop [this]
-    (when (and state (instance? duratom.core.Duratom state))
-      (duratom/destroy state))
+    ;; Don't destroy the duratom — preserve the file for next startup.
+    ;; duratom/destroy deletes the backing store.
     (assoc this :state nil))
 
   storage/VtnStorage

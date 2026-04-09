@@ -3,6 +3,7 @@
   (:require [com.stuartsierra.component :as component]
             [openadr3.vtn.config :as config]
             [openadr3.vtn.storage.memory :as mem]
+            [openadr3.vtn.storage.dynamo :as dynamo]
             [openadr3.vtn.mqtt :as mqtt]
             [openadr3.vtn.notifier :as notifier]
             [openadr3.vtn.http :as http]
@@ -20,6 +21,15 @@
   (handler/make-routing-handler
    (handler/ven-handler-map storage notifier-component config)))
 
+(defn- storage-component
+  "Create the storage component based on :storage-backend config.
+   :memory (default) — in-memory atom, optionally file-backed via duratom
+   :dynamodb — DynamoDB via Cognitect aws-api"
+  [cfg]
+  (case (keyword (or (:storage-backend cfg) :memory))
+    :dynamodb (dynamo/new-dynamo-storage)
+    (mem/new-atom-storage)))
+
 (defn system-map
   "Construct the VTN component system map.
    Pass config overrides to customize (e.g. for testing)."
@@ -28,7 +38,7 @@
    (let [cfg (merge (config/load-config) overrides)]
      (component/system-map
       :config         (config/new-config overrides)
-      :storage        (component/using (mem/new-atom-storage) [:config])
+      :storage        (component/using (storage-component cfg) [:config])
       :mqtt-publisher (component/using (mqtt/new-mqtt-publisher) [:config])
       :notifier       (component/using (notifier/new-notifier) [:mqtt-publisher])
       :http-server-bl (component/using

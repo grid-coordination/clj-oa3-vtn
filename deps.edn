@@ -27,6 +27,11 @@
         ;; Durable atom (optional file-backed persistence)
         duratom/duratom                {:mvn/version "0.5.9"}
 
+        ;; AWS DynamoDB (optional storage backend)
+        com.cognitect.aws/api          {:mvn/version "0.8.813-beta1"}
+        com.cognitect.aws/endpoints    {:mvn/version "871.2.42.29"}
+        com.cognitect.aws/dynamodb     {:mvn/version "871.2.29.52"}
+
         ;; Utilities
         medley/medley                  {:mvn/version "1.4.0"}
 

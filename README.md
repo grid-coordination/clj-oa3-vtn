@@ -112,11 +112,15 @@ Default config in `resources/config.edn`:
  :context-path "/openadr3/3.1.0"
  :mqtt-broker-url "tcp://localhost:1883"
  :mqtt-retained false
- :storage-backend :memory
+ :storage-backend :memory  ;; :memory (default) or :dynamodb
 
- ;; Optional: persist storage to a file via duratom.
- ;; Omit for pure in-memory (default).
+ ;; For :memory backend — optional file persistence via duratom:
  ;; :storage-file-path "/tmp/vtn-store.edn"
+
+ ;; For :dynamodb backend:
+ ;; :dynamodb-table "openadr3"
+ ;; :dynamodb-region "us-west-2"
+ ;; :dynamodb-ensure-table true  ;; auto-create table (dev only)
 
  ;; Per-port notifier configuration.
  ;; Controls what GET /notifiers returns on each port.
@@ -127,7 +131,9 @@ Default config in `resources/config.edn`:
 
 The `:ven-notifiers` and `:bl-notifiers` maps control what `GET /notifiers` returns on each port. The VEN port advertises MQTT only (no webhook support for public price consumers). The BL port advertises both. MQTT broker URL and serialization are filled in automatically from `:mqtt-broker-url`.
 
-Storage is in-memory by default. Set `:storage-file-path` to persist state to a file via [duratom](https://github.com/jimpil/duratom) — data survives VTN restarts with no infrastructure. Fine for dev and moderate data; production will use PostgreSQL.
+Storage backends:
+- **`:memory`** (default) — in-memory atom. Set `:storage-file-path` for file persistence via [duratom](https://github.com/jimpil/duratom). Fine for dev and moderate data.
+- **`:dynamodb`** — AWS DynamoDB via [Cognitect aws-api](https://github.com/cognitect-labs/aws-api). Single-table design with GSIs for programName and programID lookups. Set `:dynamodb-table`, `:dynamodb-region`, and optionally `:dynamodb-ensure-table true` for auto-creation (dev/local DynamoDB).
 
 Override any key by passing a map to `(start {...})` in the REPL.
 

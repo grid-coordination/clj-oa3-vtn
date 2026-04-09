@@ -24,6 +24,9 @@
         ;; Time
         tick/tick                      {:mvn/version "1.0"}
 
+        ;; Durable atom (optional file-backed persistence)
+        duratom/duratom                {:mvn/version "0.5.9"}
+
         ;; Utilities
         medley/medley                  {:mvn/version "1.4.0"}
 

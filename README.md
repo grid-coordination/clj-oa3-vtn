@@ -114,6 +114,10 @@ Default config in `resources/config.edn`:
  :mqtt-retained false
  :storage-backend :memory
 
+ ;; Optional: persist storage to a file via duratom.
+ ;; Omit for pure in-memory (default).
+ ;; :storage-file-path "/tmp/vtn-store.edn"
+
  ;; Per-port notifier configuration.
  ;; Controls what GET /notifiers returns on each port.
  :ven-notifiers {:MQTT {:authentication {:method "ANONYMOUS"}}}
@@ -122,6 +126,8 @@ Default config in `resources/config.edn`:
 ```
 
 The `:ven-notifiers` and `:bl-notifiers` maps control what `GET /notifiers` returns on each port. The VEN port advertises MQTT only (no webhook support for public price consumers). The BL port advertises both. MQTT broker URL and serialization are filled in automatically from `:mqtt-broker-url`.
+
+Storage is in-memory by default. Set `:storage-file-path` to persist state to a file via [duratom](https://github.com/jimpil/duratom) — data survives VTN restarts with no infrastructure. Fine for dev and moderate data; production will use PostgreSQL.
 
 Override any key by passing a map to `(start {...})` in the REPL.
 

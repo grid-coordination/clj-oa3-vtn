@@ -1,7 +1,11 @@
 (ns openadr3.vtn.storage.memory
-  "Atom-backed in-memory storage implementation."
+  "Atom-backed storage implementation with optional file persistence via duratom."
   (:require [com.stuartsierra.component :as component]
+            [clojure.tools.logging :as log]
+            [duratom.core :as duratom]
             [openadr3.vtn.storage :as storage]))
+
+(def ^:private empty-store {:programs {} :events {} :subscriptions {}})
 
 (defn- match-targets?
   "Check if an object's targets overlap with the filter targets.
@@ -26,15 +30,26 @@
          (take limit)
          vec)))
 
-(defrecord AtomStorage [state]
+(defn- make-state
+  "Create the storage atom — either a plain atom or a file-backed duratom."
+  [config]
+  (if-let [path (:storage-file-path config)]
+    (do (log/info "Storage: file-backed duratom at" path)
+        (duratom/duratom :local-file
+                         :file-path path
+                         :init empty-store))
+    (do (log/info "Storage: in-memory atom")
+        (atom empty-store))))
+
+(defrecord AtomStorage [config state]
   component/Lifecycle
   (start [this]
     (if state
       this
-      (assoc this :state (atom {:programs {}
-                                :events {}
-                                :subscriptions {}}))))
+      (assoc this :state (make-state (:config config)))))
   (stop [this]
+    (when (and state (instance? duratom.core.Duratom state))
+      (duratom/destroy state))
     (assoc this :state nil))
 
   storage/VtnStorage
@@ -136,6 +151,8 @@
         existing))))
 
 (defn new-atom-storage
-  "Create an AtomStorage component."
+  "Create an AtomStorage component. Depends on :config.
+   When config has :storage-file-path, uses a file-backed duratom.
+   Otherwise uses a plain in-memory atom."
   []
   (map->AtomStorage {}))

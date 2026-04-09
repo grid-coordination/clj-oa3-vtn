@@ -28,7 +28,7 @@
    (let [cfg (merge (config/load-config) overrides)]
      (component/system-map
       :config         (config/new-config overrides)
-      :storage        (mem/new-atom-storage)
+      :storage        (component/using (mem/new-atom-storage) [:config])
       :mqtt-publisher (component/using (mqtt/new-mqtt-publisher) [:config])
       :notifier       (component/using (notifier/new-notifier) [:mqtt-publisher])
       :http-server-bl (component/using

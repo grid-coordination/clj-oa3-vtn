@@ -1,5 +1,8 @@
 # clj-oa3-vtn
 
+[![Clojars Project](https://img.shields.io/clojars/v/energy.grid-coordination/clj-oa3-vtn.svg)](https://clojars.org/energy.grid-coordination/clj-oa3-vtn)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Production OpenADR 3.1.0 Virtual Top Node (VTN) server in Clojure.
 
 ## Overview
@@ -272,4 +275,4 @@ The VTN uses the OpenADR 3.1.0 specification at `resources/openadr3.yaml`. This 
 
 ## License
 
-Copyright © 2026
+Copyright © 2026 Clark Communications Corporation. Released under the [MIT License](LICENSE).

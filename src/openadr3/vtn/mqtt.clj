@@ -23,10 +23,14 @@
   (start [this]
     (let [cfg      (:config config)
           url      (:mqtt-broker-url cfg)
-          paho-url (normalize-broker-uri url)]
-      (log/info "Connecting to MQTT broker" {:url url})
+          paho-url (normalize-broker-uri url)
+          opts     (cond-> {:auto-reconnect true}
+                     (:mqtt-username cfg) (assoc :username (:mqtt-username cfg))
+                     (:mqtt-password cfg) (assoc :password (:mqtt-password cfg)))]
+      (log/info "Connecting to MQTT broker" {:url url
+                                             :auth (if (:mqtt-username cfg) "password" "anonymous")})
       (try
-        (let [client (mh/connect paho-url {})]
+        (let [client (mh/connect paho-url {:opts opts})]
           (log/info "MQTT connected" {:url url})
           (assoc this :client-atom (atom client)))
         (catch Exception e

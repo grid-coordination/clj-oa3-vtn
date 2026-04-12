@@ -7,8 +7,14 @@
 
   GSIs:
     programName-index: PK=objectType, SK=programName
-    programID-index:   PK=programID, SK=id"
+    programID-index:   PK=programID, SK=id
+
+  Caching:
+    Programs: cached with long TTL (default 1 hour) — rarely change
+    Events:   cached with short TTL (default 5 min) — updated hourly by fetcher
+    Caches invalidated on any mutation (create/update/delete)"
   (:require [cognitect.aws.client.api :as aws]
+            [clojure.core.memoize :as memo]
             [clojure.data.json :as json]
             [com.brunobonacci.mulog :as mu]
             [com.stuartsierra.component :as component]
@@ -75,40 +81,35 @@
         (recur (assoc req :ExclusiveStartKey lek) items)
         items))))
 
-(defn- query-by-type
-  "Query all items of a given objectType, paginating through all DynamoDB pages.
-   Applies skip/limit in memory after fetching all matching items."
-  [client table object-type {:keys [skip limit]}]
-  (let [skip  (or skip 0)
-        limit (or limit 50)
-        items (query-all-pages client
-                               {:TableName table
-                                :KeyConditionExpression "objectType = :ot"
-                                :ExpressionAttributeValues {":ot" {:S object-type}}})]
-    (->> items
-         (mapv item->obj)
-         (sort-by :createdDateTime)
-         (drop skip)
-         (take limit)
-         vec)))
+(defn- query-by-type-raw
+  "Query all items of a given objectType, returning the full sorted list."
+  [client table object-type]
+  (->> (query-all-pages client
+                        {:TableName table
+                         :KeyConditionExpression "objectType = :ot"
+                         :ExpressionAttributeValues {":ot" {:S object-type}}})
+       (mapv item->obj)
+       (sort-by :createdDateTime)
+       vec))
 
-(defn- query-by-index
-  "Query a GSI, paginating through all DynamoDB pages.
-   Applies skip/limit in memory after fetching all matching items."
-  [client table index-name pk-attr pk-value {:keys [skip limit]}]
+(defn- query-by-index-raw
+  "Query a GSI, returning the full sorted list."
+  [client table index-name pk-attr pk-value]
+  (->> (query-all-pages client
+                        {:TableName table
+                         :IndexName index-name
+                         :KeyConditionExpression (str pk-attr " = :pk")
+                         :ExpressionAttributeValues {":pk" {:S pk-value}}})
+       (mapv item->obj)
+       (sort-by :createdDateTime)
+       vec))
+
+(defn- paginate
+  "Apply skip/limit to a collection."
+  [coll {:keys [skip limit]}]
   (let [skip  (or skip 0)
-        limit (or limit 50)
-        items (query-all-pages client
-                               {:TableName table
-                                :IndexName index-name
-                                :KeyConditionExpression (str pk-attr " = :pk")
-                                :ExpressionAttributeValues {":pk" {:S pk-value}}})]
-    (->> items
-         (mapv item->obj)
-         (sort-by :createdDateTime)
-         (drop skip)
-         (take limit)
-         vec)))
+        limit (or limit 50)]
+    (->> coll (drop skip) (take limit) vec)))
 
 (defn- find-program-by-name
   "Check if a program with the given name exists using the programName-index GSI."
@@ -121,6 +122,40 @@
                                                                        ":pn" {:S name}}
                                            :Limit 1}})]
     (first (mapv item->obj (:Items resp)))))
+
+;; ---------------------------------------------------------------------------
+;; Cache construction
+;; ---------------------------------------------------------------------------
+
+(def ^:private default-program-ttl-ms  (* 60 60 1000))   ;; 1 hour
+(def ^:private default-event-ttl-ms    (* 5 60 1000))    ;; 5 minutes
+
+(defn- make-caches
+  "Create memoized query functions with TTL caches.
+   Returns a map of {:programs-fn :events-by-type-fn :events-by-program-fn}."
+  [client table cfg]
+  (let [prog-ttl  (or (:cache-program-ttl-ms cfg) default-program-ttl-ms)
+        event-ttl (or (:cache-event-ttl-ms cfg) default-event-ttl-ms)]
+    {:programs-fn
+     (memo/ttl (fn [_table] (query-by-type-raw client table "PROGRAM"))
+               :ttl/threshold prog-ttl)
+
+     :events-by-type-fn
+     (memo/ttl (fn [_table] (query-by-type-raw client table "EVENT"))
+               :ttl/threshold event-ttl)
+
+     :events-by-program-fn
+     (memo/ttl (fn [_table pid] (query-by-index-raw client table "programID-index" "programID" pid))
+               :ttl/threshold event-ttl)}))
+
+(defn- invalidate-programs! [{:keys [programs-fn]}]
+  (memo/memo-clear! programs-fn)
+  (mu/log ::cache-invalidated :type "PROGRAM"))
+
+(defn- invalidate-events! [{:keys [events-by-type-fn events-by-program-fn]}]
+  (memo/memo-clear! events-by-type-fn)
+  (memo/memo-clear! events-by-program-fn)
+  (mu/log ::cache-invalidated :type "EVENT"))
 
 ;; ---------------------------------------------------------------------------
 ;; Table creation (for dev/testing)
@@ -158,7 +193,7 @@
 ;; Component + VtnStorage implementation
 ;; ---------------------------------------------------------------------------
 
-(defrecord DynamoStorage [config client table]
+(defrecord DynamoStorage [config client table caches]
   component/Lifecycle
   (start [this]
     (if client
@@ -170,16 +205,19 @@
         (mu/log ::started :table tbl :region region)
         (when (:dynamodb-ensure-table cfg)
           (ensure-table! c tbl))
-        (assoc this :client c :table tbl))))
+        (assoc this
+               :client c
+               :table tbl
+               :caches (make-caches c tbl cfg)))))
 
   (stop [this]
-    (assoc this :client nil :table nil))
+    (assoc this :client nil :table nil :caches nil))
 
   storage/VtnStorage
 
-  ;; Programs
+  ;; Programs — cached
   (list-programs [_ opts]
-    (query-by-type client table "PROGRAM" opts))
+    (paginate ((:programs-fn caches) table) opts))
 
   (get-program [_ id]
     (get-item client table "PROGRAM" id))
@@ -194,21 +232,25 @@
       (let [resp (put-item! client table program)]
         (when (:cognitect.anomalies/category resp)
           (throw (ex-info "DynamoDB PutItem failed" resp)))
+        (invalidate-programs! caches)
         program)))
 
   (update-program [_ id program]
     (when (get-item client table "PROGRAM" id)
       (put-item! client table program)
+      (invalidate-programs! caches)
       program))
 
   (delete-program [_ id]
-    (delete-item! client table "PROGRAM" id))
+    (let [result (delete-item! client table "PROGRAM" id)]
+      (when result (invalidate-programs! caches))
+      result))
 
-  ;; Events
+  ;; Events — cached
   (list-events [_ opts]
     (if-let [pid (:programID opts)]
-      (query-by-index client table "programID-index" "programID" pid opts)
-      (query-by-type client table "EVENT" opts)))
+      (paginate ((:events-by-program-fn caches) table pid) opts)
+      (paginate ((:events-by-type-fn caches) table) opts)))
 
   (get-event [_ id]
     (get-item client table "EVENT" id))
@@ -217,19 +259,22 @@
     (let [resp (put-item! client table event)]
       (when (:cognitect.anomalies/category resp)
         (throw (ex-info "DynamoDB PutItem failed" resp)))
+      (invalidate-events! caches)
       event))
 
   (update-event [_ id event]
     (when (get-item client table "EVENT" id)
       (put-item! client table event)
+      (invalidate-events! caches)
       event))
 
   (delete-event [_ id]
-    (delete-item! client table "EVENT" id))
+    (let [result (delete-item! client table "EVENT" id)]
+      (when result (invalidate-events! caches))
+      result))
 
-  ;; Subscriptions
+  ;; Subscriptions — not cached (low volume)
   (list-subscriptions [_ opts]
-    ;; No dedicated GSI for subscriptions — fetch all pages by type, filter in memory
     (let [items (query-all-pages client
                                  {:TableName table
                                   :KeyConditionExpression "objectType = :ot"

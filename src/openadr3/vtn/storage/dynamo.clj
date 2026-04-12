@@ -63,16 +63,29 @@
                                            :ReturnValues "ALL_OLD"}})]
     (item->obj (:Attributes resp))))
 
+(defn- query-all-pages
+  "Execute a DynamoDB Query, following LastEvaluatedKey until all pages are fetched.
+   Returns a vector of all raw Items across all pages."
+  [client request]
+  (loop [req request
+         acc []]
+    (let [resp  (aws/invoke client {:op :Query :request req})
+          items (into acc (:Items resp))]
+      (if-let [lek (:LastEvaluatedKey resp)]
+        (recur (assoc req :ExclusiveStartKey lek) items)
+        items))))
+
 (defn- query-by-type
-  "Query all items of a given objectType, with optional pagination."
+  "Query all items of a given objectType, paginating through all DynamoDB pages.
+   Applies skip/limit in memory after fetching all matching items."
   [client table object-type {:keys [skip limit]}]
   (let [skip  (or skip 0)
         limit (or limit 50)
-        resp  (aws/invoke client {:op :Query
-                                  :request {:TableName table
-                                            :KeyConditionExpression "objectType = :ot"
-                                            :ExpressionAttributeValues {":ot" {:S object-type}}}})]
-    (->> (:Items resp)
+        items (query-all-pages client
+                               {:TableName table
+                                :KeyConditionExpression "objectType = :ot"
+                                :ExpressionAttributeValues {":ot" {:S object-type}}})]
+    (->> items
          (mapv item->obj)
          (sort-by :createdDateTime)
          (drop skip)
@@ -80,16 +93,17 @@
          vec)))
 
 (defn- query-by-index
-  "Query a GSI with a partition key condition."
+  "Query a GSI, paginating through all DynamoDB pages.
+   Applies skip/limit in memory after fetching all matching items."
   [client table index-name pk-attr pk-value {:keys [skip limit]}]
   (let [skip  (or skip 0)
         limit (or limit 50)
-        resp  (aws/invoke client {:op :Query
-                                  :request {:TableName table
-                                            :IndexName index-name
-                                            :KeyConditionExpression (str pk-attr " = :pk")
-                                            :ExpressionAttributeValues {":pk" {:S pk-value}}}})]
-    (->> (:Items resp)
+        items (query-all-pages client
+                               {:TableName table
+                                :IndexName index-name
+                                :KeyConditionExpression (str pk-attr " = :pk")
+                                :ExpressionAttributeValues {":pk" {:S pk-value}}})]
+    (->> items
          (mapv item->obj)
          (sort-by :createdDateTime)
          (drop skip)
@@ -215,9 +229,12 @@
 
   ;; Subscriptions
   (list-subscriptions [_ opts]
-    ;; No dedicated GSI for subscriptions — scan by type and filter in memory
-    (let [all (query-by-type client table "SUBSCRIPTION"
-                             {:skip 0 :limit 10000})]
+    ;; No dedicated GSI for subscriptions — fetch all pages by type, filter in memory
+    (let [items (query-all-pages client
+                                 {:TableName table
+                                  :KeyConditionExpression "objectType = :ot"
+                                  :ExpressionAttributeValues {":ot" {:S "SUBSCRIPTION"}}})
+          all   (mapv item->obj items)]
       (->> all
            (filter (fn [s]
                      (and (if-let [pid (:programID opts)]

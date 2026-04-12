@@ -55,7 +55,8 @@
 
            :nrepl {:extra-paths ["dev"]
                    :extra-deps {nrepl/nrepl {:mvn/version "1.6.0"}
-                                cider/cider-nrepl {:mvn/version "0.50.3"}}
+                                cider/cider-nrepl {:mvn/version "0.50.3"}
+                                com.dcj/clj-doc-browse {:mvn/version "0.1.0"}}
                    :jvm-opts ["-Djdk.attach.allowAttachSelf"]
                    :main-opts ["-m" "nrepl.cmdline"
                                "--middleware" "[cider.nrepl/cider-middleware]"]}

@@ -165,6 +165,27 @@ The Component system map:
 
 The nREPL server auto-assigns a free port and writes it to `.nrepl-port`. CIDER (`cider-connect`) and clojure-mcp both discover this file automatically.
 
+### Logging
+
+The VTN uses [mulog](https://github.com/BrunoBonacci/mulog) for structured event logging. Events are Clojure maps with namespace-qualified keywords — queryable, filterable, and dashboard-friendly.
+
+In dev, `dev/user.clj` auto-starts a `:console` publisher so you see events in the REPL:
+
+```
+{:mulog/event-name :openadr3.vtn.middleware/http-request,
+ :method :get, :uri /programs, :status 200, :duration-ms 3, :remote-addr 127.0.0.1}
+{:mulog/event-name :openadr3.vtn.mqtt/published,
+ :topic OpenADR/3.1.0/programs/create, :retained false}
+```
+
+For production, start a JSON publisher in `-main` or add a file/Elasticsearch/CloudWatch publisher:
+
+```clojure
+(mu/start-publisher! {:type :console :pretty? false})  ;; JSON lines
+```
+
+Key events: `::http-request` (method, uri, status, duration-ms, remote-addr), `::mqtt/published` (topic), `::mqtt/connected` / `::mqtt/disconnected`, `::http/started` / `::http/stopped` (role, port).
+
 ## Testing
 
 ### Unit Tests

@@ -161,9 +161,9 @@ The Component system map:
 :http-server-ven → Jetty on VEN port, read+subscribe routes (depends on :storage, :notifier, :config)
 ```
 
-### nREPL Port
+### nREPL
 
-Port **7892** (ecosystem convention: clj-oa3=7889, clj-oa3-client=7890, clj-oa3-test=7891).
+The nREPL server auto-assigns a free port and writes it to `.nrepl-port`. CIDER (`cider-connect`) and clojure-mcp both discover this file automatically.
 
 ## Testing
 

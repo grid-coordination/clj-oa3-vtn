@@ -11,12 +11,20 @@
   suppress webhook advertising on a port.")
 
 (defn- build-mqtt-binding
-  "Build the MQTT notifier binding object from config."
+  "Build the MQTT notifier binding object from config.
+  When :mqtt-public-uris is set in config, those are advertised to VEN
+  clients instead of the internal :mqtt-broker-url. This allows the VTN
+  to publish internally (e.g. via Cloud Map) while advertising public-
+  facing NLB URLs to subscribers."
   [config mqtt-opts]
-  {:URIS [(:mqtt-broker-url config)]
-   :serialization "JSON"
-   :authentication (or (:authentication mqtt-opts)
-                       {:method "ANONYMOUS"})})
+  (let [uris (or (not-empty (filterv some?
+                                     [(:mqtt-public-url-tcp config)
+                                      (:mqtt-public-url-tls config)]))
+                 [(:mqtt-broker-url config)])]
+    {:URIS uris
+     :serialization "JSON"
+     :authentication (or (:authentication mqtt-opts)
+                         {:method "ANONYMOUS"})}))
 
 (defn list-all
   "GET /notifiers — list all notifier bindings supported by this port.

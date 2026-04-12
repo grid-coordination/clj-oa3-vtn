@@ -2,7 +2,7 @@
   "MQTT publisher component using machine_head (Paho)."
   (:require [clojurewerkz.machine-head.client :as mh]
             [clojure.data.json :as json]
-            [clojure.tools.logging :as log]
+            [com.brunobonacci.mulog :as mu]
             [com.stuartsierra.component :as component]))
 
 (defn- normalize-broker-uri
@@ -27,15 +27,13 @@
           opts     (cond-> {:auto-reconnect true}
                      (:mqtt-username cfg) (assoc :username (:mqtt-username cfg))
                      (:mqtt-password cfg) (assoc :password (:mqtt-password cfg)))]
-      (log/info "Connecting to MQTT broker" {:url url
-                                             :auth (if (:mqtt-username cfg) "password" "anonymous")})
+      (mu/log ::connecting :url url :auth (if (:mqtt-username cfg) :password :anonymous))
       (try
         (let [client (mh/connect paho-url {:opts opts})]
-          (log/info "MQTT connected" {:url url})
+          (mu/log ::connected :url url)
           (assoc this :client-atom (atom client)))
         (catch Exception e
-          (log/warn e "Failed to connect to MQTT broker — notifications disabled"
-                    {:url url})
+          (mu/log ::connect-failed :url url :exception e)
           (assoc this :client-atom (atom nil))))))
 
   (stop [this]
@@ -43,9 +41,9 @@
       (try
         (when (mh/connected? client)
           (mh/disconnect-and-close client)
-          (log/info "MQTT disconnected"))
+          (mu/log ::disconnected))
         (catch Exception e
-          (log/warn e "Error disconnecting MQTT"))))
+          (mu/log ::disconnect-error :exception e))))
     (assoc this :client-atom nil)))
 
 (defn publish!
@@ -62,7 +60,7 @@
       (let [json-str (json/write-str payload)
             retained (get-in publisher [:config :config :mqtt-retained] false)]
         (mh/publish client topic json-str 1 retained)
-        (log/debug "MQTT published" {:topic topic :retained retained})))))
+        (mu/log ::published :topic topic :retained retained)))))
 
 (defn connected?
   "Returns true if the publisher has an active MQTT connection."

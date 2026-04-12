@@ -10,7 +10,7 @@
     programID-index:   PK=programID, SK=id"
   (:require [cognitect.aws.client.api :as aws]
             [clojure.data.json :as json]
-            [clojure.tools.logging :as log]
+            [com.brunobonacci.mulog :as mu]
             [com.stuartsierra.component :as component]
             [openadr3.vtn.storage :as storage]))
 
@@ -133,7 +133,7 @@
   (let [resp (aws/invoke client {:op :DescribeTable
                                  :request {:TableName table}})]
     (when (:cognitect.anomalies/category resp)
-      (log/info "Creating DynamoDB table" table)
+      (mu/log ::creating-table :table table)
       (aws/invoke client
                   {:op :CreateTable
                    :request {:TableName table
@@ -167,7 +167,7 @@
             region (or (:dynamodb-region cfg) "us-west-2")
             tbl    (or (:dynamodb-table cfg) "openadr3")
             c      (ddb-client region)]
-        (log/info "Storage: DynamoDB" {:table tbl :region region})
+        (mu/log ::started :table tbl :region region)
         (when (:dynamodb-ensure-table cfg)
           (ensure-table! c tbl))
         (assoc this :client c :table tbl))))

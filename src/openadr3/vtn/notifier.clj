@@ -4,7 +4,7 @@
   When a handler performs a successful create/update/delete, it calls
   (notify! notifier \"PROGRAM\" \"CREATE\" object). The notifier publishes
   to the appropriate MQTT topics."
-  (:require [clojure.tools.logging :as log]
+  (:require [com.brunobonacci.mulog :as mu]
             [com.stuartsierra.component :as component]
             [openadr3.vtn.mqtt :as mqtt]
             [openadr3.vtn.schema :as schema]))
@@ -76,11 +76,11 @@
         s-topics  (scoped-topics object-type operation object)]
     ;; Publish to global topic
     (mqtt/publish! publisher g-topic payload)
-    (log/debug "Notified" {:topic g-topic :operation operation :type object-type})
+    (mu/log ::notified :topic g-topic :operation operation :object-type object-type)
     ;; Publish to scoped topics
     (doseq [topic s-topics]
       (mqtt/publish! publisher topic payload)
-      (log/debug "Notified (scoped)" {:topic topic}))))
+      (mu/log ::notified-scoped :topic topic))))
 
 (defn new-notifier
   "Create a Notifier component. Depends on :mqtt-publisher."

@@ -1,6 +1,6 @@
 (ns openadr3.vtn.middleware
-  "Ring middleware: context path stripping and request logging."
-  (:require [clojure.tools.logging :as log]
+  "Ring middleware: context path stripping, JSON response, and request logging."
+  (:require [com.brunobonacci.mulog :as mu]
             [clojure.string :as str]
             [clojure.data.json :as json]))
 
@@ -44,11 +44,26 @@
 
         :else resp))))
 
+(defn- client-ip
+  "Extract client IP from request, respecting X-Forwarded-For behind load balancers."
+  [request]
+  (or (some-> (get-in request [:headers "x-forwarded-for"])
+              (str/split #",")
+              first
+              str/trim)
+      (:remote-addr request)))
+
 (defn wrap-request-logging
-  "Log incoming requests at debug level."
+  "Log HTTP requests as structured mulog events with timing."
   [handler]
   (fn [request]
-    (log/debug (:request-method request) (:uri request))
-    (let [resp (handler request)]
-      (log/debug (:request-method request) (:uri request) "→" (:status resp))
+    (let [start (System/nanoTime)
+          resp  (handler request)
+          ms    (/ (- (System/nanoTime) start) 1e6)]
+      (mu/log ::http-request
+              :method (:request-method request)
+              :uri (:uri request)
+              :status (:status resp)
+              :duration-ms (Math/round ms)
+              :remote-addr (client-ip request))
       resp)))

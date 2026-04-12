@@ -1,7 +1,7 @@
 (ns openadr3.vtn.storage.memory
   "Atom-backed storage implementation with optional file persistence via duratom."
   (:require [com.stuartsierra.component :as component]
-            [clojure.tools.logging :as log]
+            [com.brunobonacci.mulog :as mu]
             [duratom.core :as duratom]
             [openadr3.vtn.storage :as storage]))
 
@@ -34,11 +34,11 @@
   "Create the storage atom — either a plain atom or a file-backed duratom."
   [config]
   (if-let [path (:storage-file-path config)]
-    (do (log/info "Storage: file-backed duratom at" path)
+    (do (mu/log ::file-backed :path path)
         (duratom/duratom :local-file
                          :file-path path
                          :init empty-store))
-    (do (log/info "Storage: in-memory atom")
+    (do (mu/log ::in-memory)
         (atom empty-store))))
 
 (defrecord AtomStorage [config state]

@@ -1,7 +1,7 @@
 (ns openadr3.vtn.http
   "HTTP server component wrapping Jetty."
   (:require [ring.adapter.jetty :as jetty]
-            [clojure.tools.logging :as log]
+            [com.brunobonacci.mulog :as mu]
             [com.stuartsierra.component :as component]
             [openadr3.vtn.middleware :as mw]))
 
@@ -30,17 +30,16 @@
                                (mw/wrap-context-path context-path)
                                mw/wrap-request-logging)
               srv          (jetty/run-jetty handler {:port port :join? false})]
-          (log/info (str "HTTP " (name role) " server started on port " port
-                         " — " context-path))
+          (mu/log ::started :role role :port port :context-path context-path)
           (assoc this :server srv)))))
 
   (stop [this]
     (when server
       (try
         (.stop server)
-        (log/info (str "HTTP " (name role) " server stopped (port " port ")"))
+        (mu/log ::stopped :role role :port port)
         (catch Exception e
-          (log/warn e "Error stopping Jetty" {:port port :role role}))))
+          (mu/log ::stop-error :role role :port port :exception e))))
     (assoc this :server nil)))
 
 (defn new-http-server

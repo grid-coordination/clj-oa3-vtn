@@ -1,7 +1,11 @@
 (ns user
   "REPL development helpers."
   (:require [com.stuartsierra.component :as component]
+            [com.brunobonacci.mulog :as mu]
             [openadr3.vtn.system :as system]))
+
+;; Start mulog console publisher for dev
+(mu/start-publisher! {:type :console})
 
 (def sys nil)
 

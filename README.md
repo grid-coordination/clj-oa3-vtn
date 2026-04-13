@@ -107,6 +107,13 @@ curl http://localhost:8080/openadr3/3.1.0/notifiers/mqtt/topics/programs
 
 ## Configuration
 
+By default, the VTN loads `resources/config.edn` from the classpath. To use an external config file, set either:
+
+- **System property**: `-Dopenadr3.config=/path/to/config.edn`
+- **Environment variable**: `CLJ_OA3_VTN_CONFIG=/path/to/config.edn`
+
+The system property takes precedence. If the specified file doesn't exist, the VTN falls back to the classpath resource. External config values are merged with built-in defaults, so you only need to specify keys you want to override.
+
 Default config in `resources/config.edn`:
 
 ```edn

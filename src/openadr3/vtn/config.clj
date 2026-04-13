@@ -18,12 +18,26 @@
                 :resources     false
                 :reports       false}})
 
-(defn load-config
-  "Load config.edn from classpath and merge with defaults."
+(defn- config-source
+  "Resolve the config source: external file path from system property
+   or env var, falling back to classpath resource."
   []
-  (let [resource (io/resource "config.edn")
-        file-config (when resource
-                      (edn/read-string (slurp resource)))]
+  (or (when-let [path (or (System/getProperty "openadr3.config")
+                          (System/getenv "CLJ_OA3_VTN_CONFIG"))]
+        (let [f (io/file path)]
+          (when (.exists f) f)))
+      (io/resource "config.edn")))
+
+(defn load-config
+  "Load config.edn and merge with defaults.
+   Config source resolution order:
+     1. System property: openadr3.config
+     2. Environment variable: CLJ_OA3_VTN_CONFIG
+     3. Classpath resource: config.edn"
+  []
+  (let [source (config-source)
+        file-config (when source
+                      (edn/read-string (slurp source)))]
     (merge defaults file-config)))
 
 (defrecord Config [config]

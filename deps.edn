@@ -3,7 +3,7 @@
         org.clojure/data.json          {:mvn/version "2.5.1"}
 
         ;; OpenADR3 entity library (schemas, coercion)
-        energy.grid-coordination/clj-oa3 {:mvn/version "0.2.1"}
+        energy.grid-coordination/clj-oa3 {:mvn/version "0.2.2"}
 
         ;; HTTP routing from OpenAPI spec
         com.s-exp/legba                {:mvn/version "1.0.0-alpha147"}

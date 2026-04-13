@@ -1,6 +1,7 @@
 (ns openadr3.vtn.handler-test
   "Tests for VEN handler map route enablement."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.data.json :as json]
             [openadr3.vtn.handler :as handler]))
 
 ;; Stubs — we only care about which route keys are present, not handlers
@@ -93,3 +94,17 @@
     (testing "program topic discovery suppressed"
       (is (not (routes [:get "/notifiers/mqtt/topics/programs"])))
       (is (not (routes [:get "/notifiers/mqtt/topics/programs/{programID}"]))))))
+
+(deftest not-found-json-response-test
+  (testing "routing handler returns RFC 9457 problem+json for unmatched routes"
+    (let [handler-map (handler/bl-handler-map stub-storage stub-notifier
+                                              {:mqtt-broker-url "mqtt://localhost:1883"
+                                               :bl-notifiers {}})
+          routing-handler (handler/make-routing-handler handler-map)
+          resp (routing-handler {:request-method :get :uri "/no-such-route"})]
+      (is (= 404 (:status resp)))
+      (is (= "application/problem+json" (get-in resp [:headers "content-type"])))
+      (let [body (json/read-str (:body resp))]
+        (is (= "about:blank" (get body "type")))
+        (is (= "Not Found" (get body "title")))
+        (is (= 404 (get body "status")))))))

@@ -59,8 +59,11 @@
    [:post "/auth/token"]                       (auth/fetch-token)})
 
 (defn ven-handler-map
-  "Build the VEN port handler map — read + subscribe only."
-  [storage notifier config]
+  "Build the VEN port handler map — read + subscribe only.
+   Subscription CRUD is available (VENs create subscriptions per OA3 spec)
+   but notifications are suppressed (nil notifier) since subscription state
+   is a BL concern. Subscription topic discovery is also suppressed."
+  [storage _notifier config]
   {[:get "/programs"]                          (programs/search-all storage)
    [:get "/programs/{programID}"]              (programs/get-by-id storage)
 
@@ -68,10 +71,10 @@
    [:get "/events/{eventID}"]                  (events/get-by-id storage)
 
    [:get "/subscriptions"]                     (subs/search-all storage)
-   [:post "/subscriptions"]                    (subs/create storage notifier)
+   [:post "/subscriptions"]                    (subs/create storage nil)
    [:get "/subscriptions/{subscriptionID}"]    (subs/get-by-id storage)
-   [:put "/subscriptions/{subscriptionID}"]    (subs/update-by-id storage notifier)
-   [:delete "/subscriptions/{subscriptionID}"] (subs/delete-by-id storage notifier)
+   [:put "/subscriptions/{subscriptionID}"]    (subs/update-by-id storage nil)
+   [:delete "/subscriptions/{subscriptionID}"] (subs/delete-by-id storage nil)
 
    [:get "/notifiers"]                         (notifiers/list-all config (:ven-notifiers config))
    [:get "/notifiers/mqtt/topics/programs"]                        (topics/programs-topics)
@@ -79,7 +82,6 @@
    [:get "/notifiers/mqtt/topics/programs/{programID}/events"]     (topics/program-events-topics)
    [:get "/notifiers/mqtt/topics/events"]                          (topics/events-topics)
    [:get "/notifiers/mqtt/topics/reports"]                         (topics/reports-topics)
-   [:get "/notifiers/mqtt/topics/subscriptions"]                   (topics/subscriptions-topics)
    [:get "/notifiers/mqtt/topics/vens"]                            (topics/vens-topics)
    [:get "/notifiers/mqtt/topics/vens/{venID}"]                    (topics/ven-topics)
    [:get "/notifiers/mqtt/topics/vens/{venID}/events"]             (topics/ven-events-topics)

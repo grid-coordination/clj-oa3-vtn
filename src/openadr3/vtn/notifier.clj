@@ -68,19 +68,22 @@
 
   Publishes to:
     1. Global topic (e.g. programs/create)
-    2. Scoped topics (e.g. programs/{programID}/events/create)"
+    2. Scoped topics (e.g. programs/{programID}/events/create)
+
+  Safe to call with nil notifier (no-op)."
   [notifier object-type operation object]
-  (let [publisher (:mqtt-publisher notifier)
-        payload   (schema/notification-payload object-type operation object)
-        g-topic   (global-topic object-type operation)
-        s-topics  (scoped-topics object-type operation object)]
-    ;; Publish to global topic
-    (mqtt/publish! publisher g-topic payload)
-    (mu/log ::notified :topic g-topic :operation operation :object-type object-type)
-    ;; Publish to scoped topics
-    (doseq [topic s-topics]
-      (mqtt/publish! publisher topic payload)
-      (mu/log ::notified-scoped :topic topic))))
+  (when notifier
+    (let [publisher (:mqtt-publisher notifier)
+          payload   (schema/notification-payload object-type operation object)
+          g-topic   (global-topic object-type operation)
+          s-topics  (scoped-topics object-type operation object)]
+      ;; Publish to global topic
+      (mqtt/publish! publisher g-topic payload)
+      (mu/log ::notified :topic g-topic :operation operation :object-type object-type)
+      ;; Publish to scoped topics
+      (doseq [topic s-topics]
+        (mqtt/publish! publisher topic payload)
+        (mu/log ::notified-scoped :topic topic)))))
 
 (defn new-notifier
   "Create a Notifier component. Depends on :mqtt-publisher."

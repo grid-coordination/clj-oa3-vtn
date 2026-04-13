@@ -146,10 +146,17 @@
      {[:get "/auth/server"]  (auth/server-info config)
       [:post "/auth/token"]  (auth/fetch-token)})))
 
+(def ^:private not-found-response
+  "RFC 9457 problem details response for unmatched routes."
+  {:status 404
+   :headers {"content-type" "application/problem+json"}
+   :body "{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404}"})
+
 (defn make-routing-handler
   "Create a Legba routing-handler from a handler map and the OpenAPI spec."
   [handler-map]
   (let [spec-json (load-spec-json)]
     (legba/routing-handler handler-map spec-json
                            {:schema-src-type :string
-                            :key-fn keyword})))
+                            :key-fn keyword
+                            :not-found-response not-found-response})))

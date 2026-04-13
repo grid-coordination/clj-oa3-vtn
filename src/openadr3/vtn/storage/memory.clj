@@ -95,6 +95,14 @@
        (and (if-let [pid (:programID opts)]
               (= pid (:programID e))
               true)
+            (if-let [ds (:date-start opts)]
+              (let [es (get-in e [:intervalPeriod :start])]
+                (or (nil? es) ;; events without intervalPeriod pass through
+                    (and (>= (compare es ds) 0)
+                         (if-let [de (:date-end opts)]
+                           (<= (compare es de) 0)
+                           true))))
+              true)
             (match-targets? e (:targets opts))))
      opts))
 

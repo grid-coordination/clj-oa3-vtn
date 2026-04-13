@@ -5,14 +5,17 @@
             [openadr3.vtn.notifier :as notifier]))
 
 (defn search-all
-  "GET /events — search all events with optional programID, targets, skip, limit."
+  "GET /events — search events with optional programID, targets, skip, limit.
+   Defaults to today+tomorrow date window to avoid loading entire event history."
   [storage]
   (fn [request]
     (let [params (:query-params request)
-          gp   (partial common/get-param params)
-          opts (merge (common/parse-pagination params)
-                      (when-let [pid (gp :programID)] {:programID pid})
-                      (when-let [t (gp :targets)] {:targets t}))]
+          gp     (partial common/get-param params)
+          [ds de] (common/event-date-range params)
+          opts   (merge (common/parse-pagination params)
+                        {:date-start ds :date-end de}
+                        (when-let [pid (gp :programID)] {:programID pid})
+                        (when-let [t (gp :targets)] {:targets t}))]
       {:status 200
        :body (store/list-events storage opts)})))
 

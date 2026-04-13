@@ -6,12 +6,15 @@
     SK: id (S) — UUID
 
   GSIs:
-    programName-index: PK=objectType, SK=programName
-    programID-index:   PK=programID, SK=id
+    programName-index:           PK=objectType, SK=programName
+    programID-index:             PK=programID, SK=id
+    objectType-eventStart-index: PK=objectType, SK=eventStart (date-range queries)
+    programID-eventStart-index:  PK=programID, SK=eventStart (per-program date-range)
 
   Caching:
     Programs: cached with long TTL (default 1 hour) — rarely change
-    Events:   cached with short TTL (default 5 min) — updated hourly by fetcher
+    Events:   cached per-page with short TTL (default 5 min)
+              keyed by (programID, date-range, skip, limit)
     Caches invalidated on any mutation (create/update/delete)"
   (:require [cognitect.aws.client.api :as aws]
             [clojure.core.memoize :as memo]
@@ -35,13 +38,15 @@
    Stores the full object as a JSON string in the 'data' attribute,
    plus top-level indexed fields as native DynamoDB attributes."
   [obj]
-  (cond-> {:objectType {:S (:objectType obj)}
-           :id         {:S (:id obj)}
-           :data       {:S (json/write-str obj)}}
-    (:programName obj)  (assoc :programName {:S (:programName obj)})
-    (:programID obj)    (assoc :programID {:S (:programID obj)})
-    (:clientName obj)   (assoc :clientName {:S (:clientName obj)})
-    (:createdDateTime obj) (assoc :createdDateTime {:S (:createdDateTime obj)})))
+  (let [event-start (get-in obj [:intervalPeriod :start])]
+    (cond-> {:objectType {:S (:objectType obj)}
+             :id         {:S (:id obj)}
+             :data       {:S (json/write-str obj)}}
+      (:programName obj)     (assoc :programName {:S (:programName obj)})
+      (:programID obj)       (assoc :programID {:S (:programID obj)})
+      (:clientName obj)      (assoc :clientName {:S (:clientName obj)})
+      (:createdDateTime obj) (assoc :createdDateTime {:S (:createdDateTime obj)})
+      event-start            (assoc :eventStart {:S event-start}))))
 
 (defn- item->obj
   "Convert a DynamoDB item back to a Clojure map by parsing the 'data' JSON."
@@ -92,17 +97,99 @@
        (sort-by :createdDateTime)
        vec))
 
-(defn- query-by-index-raw
-  "Query a GSI, returning the full sorted list."
-  [client table index-name pk-attr pk-value]
-  (->> (query-all-pages client
-                        {:TableName table
-                         :IndexName index-name
-                         :KeyConditionExpression (str pk-attr " = :pk")
-                         :ExpressionAttributeValues {":pk" {:S pk-value}}})
-       (mapv item->obj)
-       (sort-by :createdDateTime)
-       vec))
+(defn- query-limited-pages
+  "Execute a DynamoDB Query following LastEvaluatedKey, but stop after max-items.
+   Returns a vector of raw DynamoDB Items."
+  [client request max-items]
+  (loop [req request
+         acc []
+         remaining max-items]
+    (if (<= remaining 0)
+      acc
+      (let [resp      (aws/invoke client {:op :Query :request (assoc req :Limit remaining)})
+            new-items (:Items resp [])
+            items     (into acc new-items)
+            remaining' (- remaining (count new-items))]
+        (if (and (pos? remaining')
+                 (:LastEvaluatedKey resp))
+          (recur (assoc req :ExclusiveStartKey (:LastEvaluatedKey resp))
+                 items remaining')
+          items)))))
+
+(defn- query-events-page-raw
+  "Query a page of events using eventStart GSIs for efficient date-range queries.
+   Falls back to legacy GSI/table query (capped) if eventStart GSI unavailable."
+  [client table program-id date-start date-end skip limit]
+  (let [fetch-count (+ skip limit)
+        request
+        (cond
+          ;; Per-program with date range → programID-eventStart-index
+          (and program-id date-start date-end)
+          {:TableName table
+           :IndexName "programID-eventStart-index"
+           :KeyConditionExpression "programID = :pid AND eventStart BETWEEN :ds AND :de"
+           :ExpressionAttributeValues {":pid" {:S program-id}
+                                       ":ds"  {:S date-start}
+                                       ":de"  {:S date-end}}
+           :ScanIndexForward true}
+
+          ;; Per-program, no date range → existing programID-index (capped)
+          program-id
+          {:TableName table
+           :IndexName "programID-index"
+           :KeyConditionExpression "programID = :pk"
+           :ExpressionAttributeValues {":pk" {:S program-id}}
+           :ScanIndexForward false}
+
+          ;; All events with date range → objectType-eventStart-index
+          (and date-start date-end)
+          {:TableName table
+           :IndexName "objectType-eventStart-index"
+           :KeyConditionExpression "objectType = :ot AND eventStart BETWEEN :ds AND :de"
+           :ExpressionAttributeValues {":ot" {:S "EVENT"}
+                                       ":ds" {:S date-start}
+                                       ":de" {:S date-end}}
+           :ScanIndexForward true}
+
+          ;; All events, no filter → main table (capped, never load all 30K)
+          :else
+          {:TableName table
+           :KeyConditionExpression "objectType = :ot"
+           :ExpressionAttributeValues {":ot" {:S "EVENT"}}
+           :ScanIndexForward false})
+
+        resp (aws/invoke client {:op :Query :request (assoc request :Limit fetch-count)})]
+    ;; Check for GSI not found — fall back to capped main table query
+    (if (:cognitect.anomalies/category resp)
+      (do (mu/log ::gsi-fallback :anomaly (:cognitect.anomalies/category resp)
+                  :index (:IndexName request)
+                  :message (:Message resp))
+          (->> (query-limited-pages client
+                                    (cond-> {:TableName table
+                                             :KeyConditionExpression "objectType = :ot"
+                                             :ExpressionAttributeValues {":ot" {:S "EVENT"}}
+                                             :ScanIndexForward false}
+                                      program-id
+                                      (-> (assoc :IndexName "programID-index"
+                                                 :KeyConditionExpression "programID = :pk"
+                                                 :ExpressionAttributeValues {":pk" {:S program-id}})))
+                                    fetch-count)
+               (mapv item->obj)
+               (drop skip)
+               vec))
+      ;; GSI query succeeded — may still need pagination across DynamoDB pages
+      (let [items  (:Items resp [])
+            lek    (:LastEvaluatedKey resp)
+            needed (- fetch-count (count items))
+            all-items (if (and (pos? needed) lek)
+                        (into items
+                              (query-limited-pages
+                               client (assoc request :ExclusiveStartKey lek) needed))
+                        items)]
+        (->> all-items
+             (mapv item->obj)
+             (drop skip)
+             vec)))))
 
 (defn- paginate
   "Apply skip/limit to a collection."
@@ -132,7 +219,8 @@
 
 (defn- make-caches
   "Create memoized query functions with TTL caches.
-   Returns a map of {:programs-fn :events-by-type-fn :events-by-program-fn}."
+   Events are cached per-page keyed by (programID, date-range, skip, limit)
+   instead of caching all events in a single entry."
   [client table cfg]
   (let [prog-ttl  (or (:cache-program-ttl-ms cfg) default-program-ttl-ms)
         event-ttl (or (:cache-event-ttl-ms cfg) default-event-ttl-ms)]
@@ -140,21 +228,17 @@
      (memo/ttl (fn [_table] (query-by-type-raw client table "PROGRAM"))
                :ttl/threshold prog-ttl)
 
-     :events-by-type-fn
-     (memo/ttl (fn [_table] (query-by-type-raw client table "EVENT"))
-               :ttl/threshold event-ttl)
-
-     :events-by-program-fn
-     (memo/ttl (fn [_table pid] (query-by-index-raw client table "programID-index" "programID" pid))
+     :events-page-fn
+     (memo/ttl (fn [_table pid ds de skip limit]
+                 (query-events-page-raw client table pid ds de skip limit))
                :ttl/threshold event-ttl)}))
 
 (defn- invalidate-programs! [{:keys [programs-fn]}]
   (memo/memo-clear! programs-fn)
   (mu/log ::cache-invalidated :type "PROGRAM"))
 
-(defn- invalidate-events! [{:keys [events-by-type-fn events-by-program-fn]}]
-  (memo/memo-clear! events-by-type-fn)
-  (memo/memo-clear! events-by-program-fn)
+(defn- invalidate-events! [{:keys [events-page-fn]}]
+  (memo/memo-clear! events-page-fn)
   (mu/log ::cache-invalidated :type "EVENT"))
 
 ;; ---------------------------------------------------------------------------
@@ -177,7 +261,8 @@
                              :AttributeDefinitions [{:AttributeName "objectType" :AttributeType "S"}
                                                     {:AttributeName "id" :AttributeType "S"}
                                                     {:AttributeName "programName" :AttributeType "S"}
-                                                    {:AttributeName "programID" :AttributeType "S"}]
+                                                    {:AttributeName "programID" :AttributeType "S"}
+                                                    {:AttributeName "eventStart" :AttributeType "S"}]
                              :GlobalSecondaryIndexes
                              [{:IndexName "programName-index"
                                :KeySchema [{:AttributeName "objectType" :KeyType "HASH"}
@@ -186,6 +271,14 @@
                               {:IndexName "programID-index"
                                :KeySchema [{:AttributeName "programID" :KeyType "HASH"}
                                            {:AttributeName "id" :KeyType "RANGE"}]
+                               :Projection {:ProjectionType "ALL"}}
+                              {:IndexName "objectType-eventStart-index"
+                               :KeySchema [{:AttributeName "objectType" :KeyType "HASH"}
+                                           {:AttributeName "eventStart" :KeyType "RANGE"}]
+                               :Projection {:ProjectionType "ALL"}}
+                              {:IndexName "programID-eventStart-index"
+                               :KeySchema [{:AttributeName "programID" :KeyType "HASH"}
+                                           {:AttributeName "eventStart" :KeyType "RANGE"}]
                                :Projection {:ProjectionType "ALL"}}]
                              :BillingMode "PAY_PER_REQUEST"}}))))
 
@@ -246,11 +339,14 @@
       (when result (invalidate-programs! caches))
       result))
 
-  ;; Events — cached
+  ;; Events — cached per-page with date-range filtering via eventStart GSIs
   (list-events [_ opts]
-    (if-let [pid (:programID opts)]
-      (paginate ((:events-by-program-fn caches) table pid) opts)
-      (paginate ((:events-by-type-fn caches) table) opts)))
+    (let [skip  (or (:skip opts) 0)
+          limit (or (:limit opts) 50)
+          pid   (:programID opts)
+          ds    (:date-start opts)
+          de    (:date-end opts)]
+      ((:events-page-fn caches) table pid ds de skip limit)))
 
   (get-event [_ id]
     (get-item client table "EVENT" id))

@@ -1,6 +1,7 @@
 (ns openadr3.vtn.handler.common
   "Shared handler utilities: ID generation, metadata, pagination, error responses."
-  (:require [openadr3.vtn.time :as time])
+  (:require [openadr3.vtn.time :as time]
+            [com.brunobonacci.mulog :as mu])
   (:import [java.util UUID]))
 
 ;; --- ID generation ---
@@ -72,6 +73,21 @@
     (cond-> {}
       skip  (assoc :skip skip)
       limit (assoc :limit (min limit 50)))))
+
+;; --- Event date range ---
+
+(defn event-date-range
+  "Extract explicit dateStart/dateEnd from query params, or default to
+   today-start → tomorrow-end (UTC). Returns [date-start date-end]."
+  [query-params]
+  (let [ds (get-param query-params :dateStart)
+        de (get-param query-params :dateEnd)]
+    (if (or ds de)
+      [ds de]
+      (let [default-ds (time/today-start)
+            default-de (time/tomorrow-end)]
+        (mu/log ::default-event-date-range :date-start default-ds :date-end default-de)
+        [default-ds default-de]))))
 
 ;; --- Error responses (RFC 9457 Problem Details) ---
 

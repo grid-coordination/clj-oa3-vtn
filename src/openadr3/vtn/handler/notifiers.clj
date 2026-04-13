@@ -12,14 +12,16 @@
 
 (defn- build-mqtt-binding
   "Build the MQTT notifier binding object from config.
-  When :mqtt-public-uris is set in config, those are advertised to VEN
-  clients instead of the internal :mqtt-broker-url. This allows the VTN
-  to publish internally (e.g. via Cloud Map) while advertising public-
-  facing NLB URLs to subscribers."
+  When public URL keys are set, those are advertised to clients instead
+  of the internal :mqtt-broker-url. Supports mqtt://, mqtts://, ws://,
+  wss:// schemes. This allows the VTN to publish internally (e.g. via
+  Cloud Map) while advertising public-facing NLB URLs to subscribers."
   [config mqtt-opts]
   (let [uris (or (not-empty (filterv some?
-                                     [(:mqtt-public-url-tcp config)
-                                      (:mqtt-public-url-tls config)]))
+                                     [(:mqtt-public-url config)
+                                      (:mqtt-public-url-tls config)
+                                      (:mqtt-public-url-ws config)
+                                      (:mqtt-public-url-wss config)]))
                  [(:mqtt-broker-url config)])]
     {:URIS uris
      :serialization "JSON"

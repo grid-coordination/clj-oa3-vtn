@@ -8,7 +8,7 @@
   {:ven-port 8080
    :bl-port 8081
    :context-path "/openadr3/3.1.0"
-   :mqtt-broker-url "tcp://localhost:1883"
+   :mqtt-broker-url "mqtt://localhost:1883"
    :mqtt-retained false
    :storage-backend :memory})
 

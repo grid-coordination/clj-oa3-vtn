@@ -213,7 +213,7 @@ Key events: `::http-request` (method, uri, status, duration-ms, remote-addr), `:
 
 ```bash
 clojure -M:test
-# 44 tests, 215 assertions
+# 48 tests, 227 assertions
 ```
 
 ### Integration Tests

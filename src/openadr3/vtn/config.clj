@@ -10,7 +10,13 @@
    :context-path "/openadr3/3.1.0"
    :mqtt-broker-url "mqtt://localhost:1883"
    :mqtt-retained false
-   :storage-backend :memory})
+   :storage-backend :memory
+   :ven-routes {:programs      :read-only
+                :events        :read-only
+                :subscriptions false
+                :vens          false
+                :resources     false
+                :reports       false}})
 
 (defn load-config
   "Load config.edn from classpath and merge with defaults."

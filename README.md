@@ -16,9 +16,9 @@ The VTN exposes two HTTP ports with different access levels:
 | Port | Role | Access |
 |------|------|--------|
 | **8081** (BL) | Business Logic | Full CRUD on programs, events, subscriptions |
-| **8080** (VEN) | Virtual End Node | Read programs/events, manage subscriptions |
+| **8080** (VEN) | Virtual End Node | Read programs/events (configurable per resource) |
 
-BL clients run co-located with the VTN and are trusted by network topology — no authentication in Phase 1. VEN clients are public-facing and can only read data and create subscriptions for MQTT notifications.
+BL clients run co-located with the VTN and are trusted by network topology — no authentication in Phase 1. VEN clients are public-facing and by default can only read programs and events. Additional resource access (subscriptions, VENs, resources, reports) can be enabled per resource type via `:ven-routes` config.
 
 Both ports share the same storage and MQTT notification system.
 
@@ -113,7 +113,7 @@ Default config in `resources/config.edn`:
 {:ven-port 8080
  :bl-port 8081
  :context-path "/openadr3/3.1.0"
- :mqtt-broker-url "tcp://localhost:1883"
+ :mqtt-broker-url "mqtt://localhost:1883"
  :mqtt-retained false
  :storage-backend :memory  ;; :memory (default) or :dynamodb
 
@@ -125,6 +125,15 @@ Default config in `resources/config.edn`:
  ;; :dynamodb-region "us-west-2"
  ;; :dynamodb-ensure-table true  ;; auto-create table (dev only)
 
+ ;; VEN port resource access control.
+ ;; :read-only = GET only, :full = CRUD, false = disabled (404).
+ :ven-routes {:programs      :read-only
+              :events        :read-only
+              :subscriptions false
+              :vens          false
+              :resources     false
+              :reports       false}
+
  ;; Per-port notifier configuration.
  ;; Controls what GET /notifiers returns on each port.
  :ven-notifiers {:MQTT {:authentication {:method "ANONYMOUS"}}}
@@ -132,7 +141,9 @@ Default config in `resources/config.edn`:
                  :WEBHOOK true}}
 ```
 
-The `:ven-notifiers` and `:bl-notifiers` maps control what `GET /notifiers` returns on each port. The VEN port advertises MQTT only (no webhook support for public price consumers). The BL port advertises both. MQTT broker URL and serialization are filled in automatically from `:mqtt-broker-url`.
+The `:ven-routes` map controls which resources the VEN port exposes. Disabled resources return 404/405 and their MQTT topic discovery endpoints are also suppressed. See [doc/mqtt-broker-security.md](doc/mqtt-broker-security.md) for MQTT broker ACL configuration.
+
+The `:ven-notifiers` and `:bl-notifiers` maps control what `GET /notifiers` returns on each port. The VEN port advertises MQTT only (no webhook support for public price consumers). The BL port advertises both. MQTT broker URL and serialization are filled in automatically from `:mqtt-broker-url`. Supports `mqtt://`, `mqtts://`, `ws://`, and `wss://` URI schemes.
 
 Storage backends:
 - **`:memory`** (default) — in-memory atom. Set `:storage-file-path` for file persistence via [duratom](https://github.com/jimpil/duratom). Fine for dev and moderate data.
@@ -195,7 +206,7 @@ Key events: `::http-request` (method, uri, status, duration-ms, remote-addr), `:
 
 ```bash
 clojure -M:test
-# 38 tests, 167 assertions
+# 44 tests, 215 assertions
 ```
 
 ### Integration Tests
@@ -251,7 +262,8 @@ src/openadr3/vtn/
   middleware.clj         — Context path, JSON response, logging
   storage.clj           — VtnStorage protocol
   storage/memory.clj    — Atom-backed implementation
-  notifier.clj          — Notifier Component (MQTT topic routing)
+  storage/dynamo.clj    — DynamoDB implementation (eventStart GSIs, per-page caching)
+  notifier.clj          — Notifier Component (MQTT topic routing, nil-safe)
   mqtt.clj              — MqttPublisher Component (Paho)
   schema.clj            — Entity coercion bridge to clj-oa3
   time.clj              — RFC 3339 helpers

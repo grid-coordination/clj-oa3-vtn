@@ -4,6 +4,7 @@
             [openadr3.vtn.config :as config]
             [openadr3.vtn.storage.memory :as mem]
             [openadr3.vtn.storage.dynamo :as dynamo]
+            [openadr3.vtn.storage.validated :as validated]
             [openadr3.vtn.mqtt :as mqtt]
             [openadr3.vtn.notifier :as notifier]
             [openadr3.vtn.http :as http]
@@ -38,7 +39,8 @@
    (let [cfg (merge (config/load-config) overrides)]
      (component/system-map
       :config         (config/new-config overrides)
-      :storage        (component/using (storage-component cfg) [:config])
+      :raw-storage    (component/using (storage-component cfg) [:config])
+      :storage        (component/using (validated/new-validating-storage) [:raw-storage])
       :mqtt-publisher (component/using (mqtt/new-mqtt-publisher) [:config])
       :notifier       (component/using (notifier/new-notifier) [:mqtt-publisher])
       :http-server-bl (component/using

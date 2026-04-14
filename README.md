@@ -88,11 +88,11 @@ curl -X POST http://localhost:8081/openadr3/3.1.0/programs \
 # Read programs (VEN port)
 curl http://localhost:8080/openadr3/3.1.0/programs
 
-# Create an event with pricing
+# Create an event with pricing (intervalPeriod required for GSI indexing)
 PROGRAM_ID=<id-from-above>
 curl -X POST http://localhost:8081/openadr3/3.1.0/events \
   -H 'Content-Type: application/json' \
-  -d "{\"programID\":\"$PROGRAM_ID\",\"intervals\":[{\"id\":0,\"payloads\":[{\"type\":\"PRICE\",\"values\":[0.25]}]}]}"
+  -d "{\"programID\":\"$PROGRAM_ID\",\"intervalPeriod\":{\"start\":\"2025-01-15T00:00:00Z\",\"duration\":\"PT1H\"},\"intervals\":[{\"id\":0,\"payloads\":[{\"type\":\"PRICE\",\"values\":[0.25]}]}]}"
 
 # VEN port rejects writes
 curl -X POST http://localhost:8080/openadr3/3.1.0/programs \
@@ -175,7 +175,8 @@ The Component system map:
 
 ```
 :config          → loads config.edn
-:storage         → AtomStorage (in-memory)
+:raw-storage     → AtomStorage or DynamoStorage (depends on :config)
+:storage         → ValidatingStorage — Malli schema checks on write (wraps :raw-storage)
 :mqtt-publisher  → Paho MQTT client (depends on :config)
 :notifier        → routes C/U/D to MQTT topics (depends on :mqtt-publisher)
 :http-server-bl  → Jetty on BL port, full CRUD routes (depends on :storage, :notifier, :config)
@@ -213,7 +214,7 @@ Key events: `::http-request` (method, uri, status, duration-ms, remote-addr), `:
 
 ```bash
 clojure -M:test
-# 48 tests, 227 assertions
+# 56 tests, 260 assertions
 ```
 
 ### Integration Tests
@@ -270,9 +271,10 @@ src/openadr3/vtn/
   storage.clj           — VtnStorage protocol
   storage/memory.clj    — Atom-backed implementation
   storage/dynamo.clj    — DynamoDB implementation (eventStart GSIs, per-page caching)
+  storage/validated.clj — Validating decorator (Malli schema checks on write)
   notifier.clj          — Notifier Component (MQTT topic routing, nil-safe)
   mqtt.clj              — MqttPublisher Component (Paho)
-  schema.clj            — Entity coercion bridge to clj-oa3
+  schema.clj            — Wire-format Malli schemas, entity coercion bridge to clj-oa3
   time.clj              — RFC 3339 helpers
 ```
 
@@ -284,7 +286,7 @@ src/openadr3/vtn/
 | HTTP server | Jetty (ring-jetty-adapter) |
 | Lifecycle | [Component](https://github.com/stuartsierra/component) |
 | MQTT | [machine_head](https://github.com/clojurewerkz/machine_head) (Paho) |
-| Validation | [Malli](https://github.com/metosin/malli) + Legba OpenAPI validation |
+| Validation | [Malli](https://github.com/metosin/malli) — wire-format entity schemas enforced at storage boundary + Legba OpenAPI validation |
 | Entities | [clj-oa3](../clj-oa3) (shared schemas and coercion) |
 | Time | [tick](https://github.com/juxt/tick) |
 

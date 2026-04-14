@@ -62,8 +62,8 @@
       (println "  MQTT:      " (if (some-> sys :mqtt-publisher :client-atom deref)
                                  "connected" "disconnected")
                " " (:mqtt-broker-url cfg))
-      (println "  Storage:   " (if (get-in sys [:storage :state])
-                                 (let [s @(get-in sys [:storage :state])]
+      (println "  Storage:   " (if (get-in sys [:raw-storage :state])
+                                 (let [s @(get-in sys [:raw-storage :state])]
                                    (str (count (:programs s)) " programs, "
                                         (count (:events s)) " events, "
                                         (count (:subscriptions s)) " subscriptions"))

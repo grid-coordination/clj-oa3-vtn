@@ -6,6 +6,7 @@
             [openadr3.vtn.storage :as store]
             [openadr3.vtn.storage.memory :as mem]
             [openadr3.vtn.storage.notifying :as notifying]
+            [openadr3.vtn.notifier]
             [openadr3.vtn.handler.common :as common]))
 
 ;; ---------------------------------------------------------------------------
@@ -26,7 +27,7 @@
   (->RecordingNotifier (atom [])))
 
 ;; Monkey-patch notify! for test isolation — record calls
-(defn install-recording-notify! [notifier]
+(defn install-recording-notify! [_notifier]
   (let [orig-notify @#'openadr3.vtn.notifier/notify!]
     (alter-var-root #'openadr3.vtn.notifier/notify!
                     (fn [_]
@@ -123,7 +124,7 @@
 
     (testing "update-program publishes UPDATE notification"
       (let [updated (common/touch-metadata p {:programName "updated"})
-            stored (store/update-program *storage* (:id p) updated)]
+            _stored (store/update-program *storage* (:id p) updated)]
         (is (= 1 (count (notifications))))
         (is (= {:object-type "PROGRAM" :operation "UPDATE" :id (:id p)}
                (first (notifications))))))
@@ -152,6 +153,6 @@
 
 (deftest direct-storage-writes-notify-test
   (testing "writes bypassing HTTP handlers still produce notifications"
-    (let [e (store/create-event *storage* (make-event "direct-write"))]
+    (let [_e (store/create-event *storage* (make-event "direct-write"))]
       (is (= 1 (count (filter #(= "EVENT" (:object-type %)) (notifications))))
           "Direct storage write should trigger notification — this is the fetcher use case"))))

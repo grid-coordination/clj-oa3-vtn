@@ -13,9 +13,6 @@
   [handler-map]
   (set (keys handler-map)))
 
-(defn- has-route? [handler-map method path]
-  (contains? handler-map [method path]))
-
 (deftest default-ven-routes-test
   (let [config {}
         routes (route-keys (handler/ven-handler-map stub-storage config))]

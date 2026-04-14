@@ -6,7 +6,6 @@
   (the reverse direction: coerced/stored objects → wire-format notifications)."
   (:require [openadr3.entities :as entities]
             [openadr3.entities.schema :as schema]
-            [openadr3.vtn.time :as time]
             [malli.core :as m]
             [malli.error :as me]))
 

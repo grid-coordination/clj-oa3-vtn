@@ -1,5 +1,6 @@
 (ns openadr3.vtn.storage.memory-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.set]
             [com.stuartsierra.component :as component]
             [openadr3.vtn.storage :as store]
             [openadr3.vtn.storage.memory :as mem]

@@ -5,3 +5,4 @@ target/
 *.jar
 .DS_Store
 .clj-kondo/.cache/
+.clj-xref/

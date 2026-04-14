@@ -6,7 +6,7 @@
 
 ;; Stubs — we only care about which route keys are present, not handlers
 (def stub-storage nil)
-(def stub-notifier :test-notifier)
+(def _unused nil)
 
 (defn- route-keys
   "Get the set of route keys from a handler map."
@@ -18,7 +18,7 @@
 
 (deftest default-ven-routes-test
   (let [config {}
-        routes (route-keys (handler/ven-handler-map stub-storage stub-notifier config))]
+        routes (route-keys (handler/ven-handler-map stub-storage config))]
 
     (testing "programs read-only by default"
       (is (routes [:get "/programs"]))
@@ -60,7 +60,7 @@
 
 (deftest full-crud-ven-routes-test
   (let [config {:ven-routes {:subscriptions :full}}
-        routes (route-keys (handler/ven-handler-map stub-storage stub-notifier config))]
+        routes (route-keys (handler/ven-handler-map stub-storage config))]
 
     (testing "subscriptions full CRUD when enabled"
       (is (routes [:get "/subscriptions"]))
@@ -74,7 +74,7 @@
 
 (deftest read-only-subscriptions-test
   (let [config {:ven-routes {:subscriptions :read-only}}
-        routes (route-keys (handler/ven-handler-map stub-storage stub-notifier config))]
+        routes (route-keys (handler/ven-handler-map stub-storage config))]
 
     (testing "subscriptions read-only: GET only"
       (is (routes [:get "/subscriptions"]))
@@ -85,7 +85,7 @@
 
 (deftest disabled-programs-test
   (let [config {:ven-routes {:programs false}}
-        routes (route-keys (handler/ven-handler-map stub-storage stub-notifier config))]
+        routes (route-keys (handler/ven-handler-map stub-storage config))]
 
     (testing "programs completely disabled"
       (is (not (routes [:get "/programs"])))
@@ -97,7 +97,7 @@
 
 (deftest not-found-json-response-test
   (testing "routing handler returns RFC 9457 problem+json for unmatched routes"
-    (let [handler-map (handler/bl-handler-map stub-storage stub-notifier
+    (let [handler-map (handler/bl-handler-map stub-storage
                                               {:mqtt-broker-url "mqtt://localhost:1883"
                                                :bl-notifiers {}})
           routing-handler (handler/make-routing-handler handler-map)

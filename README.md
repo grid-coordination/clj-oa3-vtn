@@ -174,13 +174,14 @@ The VTN uses [Stuart Sierra's Component](https://github.com/stuartsierra/compone
 The Component system map:
 
 ```
-:config          → loads config.edn
-:raw-storage     → AtomStorage or DynamoStorage (depends on :config)
-:storage         → ValidatingStorage — Malli schema checks on write (wraps :raw-storage)
-:mqtt-publisher  → Paho MQTT client (depends on :config)
-:notifier        → routes C/U/D to MQTT topics (depends on :mqtt-publisher)
-:http-server-bl  → Jetty on BL port, full CRUD routes (depends on :storage, :notifier, :config)
-:http-server-ven → Jetty on VEN port, read+subscribe routes (depends on :storage, :notifier, :config)
+:config            → loads config.edn
+:raw-storage       → AtomStorage or DynamoStorage (depends on :config)
+:validated-storage → ValidatingStorage — Malli schema checks on write (wraps :raw-storage)
+:mqtt-publisher    → Paho MQTT client (depends on :config)
+:notifier          → routes C/U/D to MQTT topics (depends on :mqtt-publisher)
+:storage           → NotifyingStorage — auto-publishes MQTT on C/U/D (wraps :validated-storage)
+:http-server-bl    → Jetty on BL port, full CRUD routes (depends on :storage, :config)
+:http-server-ven   → Jetty on VEN port, read+subscribe routes (depends on :storage, :config)
 ```
 
 ### nREPL
@@ -214,7 +215,7 @@ Key events: `::http-request` (method, uri, status, duration-ms, remote-addr), `:
 
 ```bash
 clojure -M:test
-# 56 tests, 260 assertions
+# 60 tests, 273 assertions
 ```
 
 ### Integration Tests
@@ -272,6 +273,7 @@ src/openadr3/vtn/
   storage/memory.clj    — Atom-backed implementation
   storage/dynamo.clj    — DynamoDB implementation (eventStart GSIs, per-page caching)
   storage/validated.clj — Validating decorator (Malli schema checks on write)
+  storage/notifying.clj — Notifying decorator (auto-publishes MQTT on C/U/D)
   notifier.clj          — Notifier Component (MQTT topic routing, nil-safe)
   mqtt.clj              — MqttPublisher Component (Paho)
   schema.clj            — Wire-format Malli schemas, entity coercion bridge to clj-oa3

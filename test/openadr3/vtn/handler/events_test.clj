@@ -7,16 +7,9 @@
             [openadr3.vtn.handler.events :as events]))
 
 (def ^:dynamic *storage* nil)
-(def ^:dynamic *notifier* nil)
-
-(defrecord StubNotifier []
-  component/Lifecycle
-  (start [this] this)
-  (stop [this] this))
 
 (defn storage-fixture [f]
-  (binding [*storage* (component/start (mem/new-atom-storage))
-            *notifier* (->StubNotifier)]
+  (binding [*storage* (component/start (mem/new-atom-storage))]
     (try (f)
          (finally (component/stop *storage*)))))
 
@@ -24,10 +17,7 @@
 
 (defn- invoke [handler-fn & [request-overrides]]
   (let [request (merge {:query-params {} :path-params {} :body {}} request-overrides)]
-    (try
-      ((handler-fn *storage* *notifier*) request)
-      (catch clojure.lang.ArityException _
-        ((handler-fn *storage*) request)))))
+    ((handler-fn *storage*) request)))
 
 (deftest create-and-get-test
   (let [prog (store/create-program *storage* (common/add-metadata {:programName "p1"} "PROGRAM"))

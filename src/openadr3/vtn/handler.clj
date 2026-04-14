@@ -21,25 +21,26 @@
       legba-json/yaml-str->json-str))
 
 (defn bl-handler-map
-  "Build the BL port handler map — full CRUD on programs, events, subscriptions."
-  [storage notifier config]
+  "Build the BL port handler map — full CRUD on programs, events, subscriptions.
+   Notifications are handled by the NotifyingStorage layer, not handlers."
+  [storage config]
   {[:get "/programs"]                          (programs/search-all storage)
-   [:post "/programs"]                         (programs/create storage notifier)
+   [:post "/programs"]                         (programs/create storage)
    [:get "/programs/{programID}"]              (programs/get-by-id storage)
-   [:put "/programs/{programID}"]              (programs/update-by-id storage notifier)
-   [:delete "/programs/{programID}"]           (programs/delete-by-id storage notifier)
+   [:put "/programs/{programID}"]              (programs/update-by-id storage)
+   [:delete "/programs/{programID}"]           (programs/delete-by-id storage)
 
    [:get "/events"]                            (events/search-all storage)
-   [:post "/events"]                           (events/create storage notifier)
+   [:post "/events"]                           (events/create storage)
    [:get "/events/{eventID}"]                  (events/get-by-id storage)
-   [:put "/events/{eventID}"]                  (events/update-by-id storage notifier)
-   [:delete "/events/{eventID}"]               (events/delete-by-id storage notifier)
+   [:put "/events/{eventID}"]                  (events/update-by-id storage)
+   [:delete "/events/{eventID}"]               (events/delete-by-id storage)
 
    [:get "/subscriptions"]                     (subs/search-all storage)
-   [:post "/subscriptions"]                    (subs/create storage notifier)
+   [:post "/subscriptions"]                    (subs/create storage)
    [:get "/subscriptions/{subscriptionID}"]    (subs/get-by-id storage)
-   [:put "/subscriptions/{subscriptionID}"]    (subs/update-by-id storage notifier)
-   [:delete "/subscriptions/{subscriptionID}"] (subs/delete-by-id storage notifier)
+   [:put "/subscriptions/{subscriptionID}"]    (subs/update-by-id storage)
+   [:delete "/subscriptions/{subscriptionID}"] (subs/delete-by-id storage)
 
    [:get "/notifiers"]                         (notifiers/list-all config (:bl-notifiers config))
    [:get "/notifiers/mqtt/topics/programs"]                        (topics/programs-topics)
@@ -77,12 +78,11 @@
      false/nil  — disabled (routes omitted, returns 404/405)
 
    Disabled resources also have their topic discovery routes suppressed.
-   Notifier is passed only for :full resources; :read-only gets nil."
-  [storage notifier config]
+   Notifications are handled by the NotifyingStorage layer, not handlers."
+  [storage config]
   (let [routes   (merge default-ven-routes (:ven-routes config))
         enabled? (fn [k] (get routes k))
-        full?    (fn [k] (= :full (get routes k)))
-        nfr      (fn [k] (when (full? k) notifier))]
+        full?    (fn [k] (= :full (get routes k)))]
     (merge
      ;; --- Programs ---
      (when (enabled? :programs)
@@ -90,9 +90,9 @@
         {[:get "/programs"]             (programs/search-all storage)
          [:get "/programs/{programID}"] (programs/get-by-id storage)}
         (when (full? :programs)
-          {[:post "/programs"]               (programs/create storage (nfr :programs))
-           [:put "/programs/{programID}"]    (programs/update-by-id storage (nfr :programs))
-           [:delete "/programs/{programID}"] (programs/delete-by-id storage (nfr :programs))})))
+          {[:post "/programs"]               (programs/create storage)
+           [:put "/programs/{programID}"]    (programs/update-by-id storage)
+           [:delete "/programs/{programID}"] (programs/delete-by-id storage)})))
 
      ;; --- Events ---
      (when (enabled? :events)
@@ -100,9 +100,9 @@
         {[:get "/events"]           (events/search-all storage)
          [:get "/events/{eventID}"] (events/get-by-id storage)}
         (when (full? :events)
-          {[:post "/events"]              (events/create storage (nfr :events))
-           [:put "/events/{eventID}"]     (events/update-by-id storage (nfr :events))
-           [:delete "/events/{eventID}"]  (events/delete-by-id storage (nfr :events))})))
+          {[:post "/events"]              (events/create storage)
+           [:put "/events/{eventID}"]     (events/update-by-id storage)
+           [:delete "/events/{eventID}"]  (events/delete-by-id storage)})))
 
      ;; --- Subscriptions ---
      (when (enabled? :subscriptions)
@@ -110,9 +110,9 @@
         {[:get "/subscriptions"]                  (subs/search-all storage)
          [:get "/subscriptions/{subscriptionID}"] (subs/get-by-id storage)}
         (when (full? :subscriptions)
-          {[:post "/subscriptions"]                    (subs/create storage (nfr :subscriptions))
-           [:put "/subscriptions/{subscriptionID}"]    (subs/update-by-id storage (nfr :subscriptions))
-           [:delete "/subscriptions/{subscriptionID}"] (subs/delete-by-id storage (nfr :subscriptions))})))
+          {[:post "/subscriptions"]                    (subs/create storage)
+           [:put "/subscriptions/{subscriptionID}"]    (subs/update-by-id storage)
+           [:delete "/subscriptions/{subscriptionID}"] (subs/delete-by-id storage)})))
 
      ;; --- Notifiers & topic discovery (filtered by enabled resources) ---
      {[:get "/notifiers"] (notifiers/list-all config (:ven-notifiers config))}

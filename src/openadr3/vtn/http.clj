@@ -14,7 +14,7 @@
       true)
     (catch java.net.BindException _ false)))
 
-(defrecord HttpServer [port role handler-fn config storage notifier server]
+(defrecord HttpServer [port role handler-fn config storage server]
   component/Lifecycle
   (start [this]
     (if server
@@ -25,7 +25,7 @@
                           {:port port :role role})))
         (let [cfg          (:config config)
               context-path (:context-path cfg)
-              handler      (-> (handler-fn storage notifier cfg)
+              handler      (-> (handler-fn storage cfg)
                                mw/wrap-json-response
                                (mw/wrap-context-path context-path)
                                mw/wrap-request-logging)
@@ -46,6 +46,6 @@
   "Create an HttpServer component.
    port       — TCP port
    role       — :ven or :bl (for logging)
-   handler-fn — (fn [storage notifier config] ring-handler)"
+   handler-fn — (fn [storage config] ring-handler)"
   [port role handler-fn]
   (map->HttpServer {:port port :role role :handler-fn handler-fn}))

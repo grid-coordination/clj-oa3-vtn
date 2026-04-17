@@ -5,7 +5,7 @@
             [deps-deploy.deps-deploy :as dd]))
 
 (def lib 'energy.grid-coordination/clj-oa3-vtn)
-(def version "0.7.1")
+(def version "0.7.2")
 (def class-dir "target/classes")
 
 (defn test "Run all the tests." [opts]

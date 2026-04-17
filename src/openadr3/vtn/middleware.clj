@@ -63,7 +63,9 @@
       (mu/log ::http-request
               :method (:request-method request)
               :uri (:uri request)
+              :query-string (:query-string request)
               :status (:status resp)
               :duration-ms (Math/round ms)
-              :remote-addr (client-ip request))
+              :remote-addr (client-ip request)
+              :user-agent (get-in request [:headers "user-agent"]))
       resp)))

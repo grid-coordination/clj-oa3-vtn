@@ -297,7 +297,7 @@ src/openadr3/vtn/
 
 The VEN port automatically serves interactive API documentation:
 
-- **`/docs`** — Scalar API reference UI (browse endpoints, try requests)
+- **`/api`** — Scalar API reference UI (browse endpoints, try requests)
 - **`/openapi.json`** — Filtered OpenAPI spec (JSON, only includes active endpoints)
 
 The spec is filtered at startup to match the active `:ven-routes` config, so users only see endpoints that actually respond. No build step — Scalar loads from CDN.

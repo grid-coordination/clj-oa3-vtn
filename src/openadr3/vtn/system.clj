@@ -25,10 +25,10 @@
    (handler/ven-handler-map storage config)))
 
 (defn- make-ven-docs
-  "Build docs route map for the VEN port: /docs and /openapi.json."
+  "Build docs route map for the VEN port: /api and /openapi.json."
   [storage config]
   (let [handler-map (handler/ven-handler-map storage config)]
-    {"/docs"         (docs/docs-page)
+    {"/api"          (docs/docs-page)
      "/openapi.json" (docs/openapi-json handler-map config)}))
 
 (defn- storage-component

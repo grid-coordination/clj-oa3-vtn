@@ -9,7 +9,8 @@
             [openadr3.vtn.mqtt :as mqtt]
             [openadr3.vtn.notifier :as notifier]
             [openadr3.vtn.http :as http]
-            [openadr3.vtn.handler :as handler]))
+            [openadr3.vtn.handler :as handler]
+            [openadr3.vtn.handler.docs :as docs]))
 
 (defn- make-bl-handler
   "Build the BL port Ring handler."
@@ -22,6 +23,13 @@
   [storage config]
   (handler/make-routing-handler
    (handler/ven-handler-map storage config)))
+
+(defn- make-ven-docs
+  "Build docs route map for the VEN port: /docs and /openapi.json."
+  [storage config]
+  (let [handler-map (handler/ven-handler-map storage config)]
+    {"/docs"         (docs/docs-page)
+     "/openapi.json" (docs/openapi-json handler-map config)}))
 
 (defn- storage-component
   "Create the storage component based on :storage-backend config.
@@ -53,5 +61,6 @@
                           (http/new-http-server (:bl-port cfg) :bl make-bl-handler)
                           [:config :storage])
       :http-server-ven   (component/using
-                          (http/new-http-server (:ven-port cfg) :ven make-ven-handler)
+                          (http/new-http-server (:ven-port cfg) :ven
+                                                make-ven-handler make-ven-docs)
                           [:config :storage])))))

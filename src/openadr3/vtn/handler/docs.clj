@@ -1,0 +1,90 @@
+(ns openadr3.vtn.handler.docs
+  "API documentation handlers: filtered OpenAPI spec and Scalar UI."
+  (:require [clojure.java.io :as io]
+            [clojure.data.json :as json])
+  (:import [org.yaml.snakeyaml Yaml]))
+
+(defn- java->clj
+  "Recursively convert Java collections to Clojure equivalents."
+  [x]
+  (cond
+    (instance? java.util.Map x)  (into {} (map (fn [[k v]] [k (java->clj v)])) x)
+    (instance? java.util.List x) (mapv java->clj x)
+    :else x))
+
+(defn- load-spec
+  "Load the OpenAPI YAML spec from classpath as a Clojure map."
+  []
+  (let [yaml (Yaml.)]
+    (java->clj (.load yaml (slurp (io/resource "openadr3.yaml"))))))
+
+(defn- filter-spec
+  "Remove paths/methods from the spec that aren't in the handler-map.
+   handler-map keys are [method path] pairs like [:get \"/programs\"]."
+  [spec handler-map]
+  (let [routed? (set (map (fn [[k _]] [(name (first k)) (second k)])
+                          handler-map))]
+    (update spec "paths"
+            (fn [paths]
+              (into {}
+                    (for [[path methods] paths
+                          :let [kept (into {}
+                                           (for [[method op] methods
+                                                 :when (routed? [method path])]
+                                             [method op]))]
+                          :when (seq kept)]
+                      [path kept]))))))
+
+(defn- brand-spec
+  "Add server metadata to the spec for a branded docs page."
+  [spec config]
+  (let [ctx (or (:context-path config) "")]
+    (-> spec
+        (assoc-in ["info" "title"]
+                  (or (:docs-title config) "OpenADR 3 VTN API"))
+        (assoc-in ["info" "description"]
+                  (or (:docs-description config)
+                      "OpenADR 3.1.0 Virtual Top Node — read-only API for programs, events, and notifications."))
+        (assoc "servers" [{"url" ctx}]))))
+
+(defn openapi-yaml
+  "Handler: serve the filtered OpenAPI spec as YAML."
+  [handler-map config]
+  (let [spec (-> (load-spec) (filter-spec handler-map) (brand-spec config))
+        yaml (Yaml.)]
+    (fn [_request]
+      {:status 200
+       :headers {"content-type" "application/x-yaml; charset=utf-8"}
+       :body (.dump yaml spec)})))
+
+(defn openapi-json
+  "Handler: serve the filtered OpenAPI spec as JSON."
+  [handler-map config]
+  (let [spec (-> (load-spec) (filter-spec handler-map) (brand-spec config))]
+    (fn [_request]
+      {:status 200
+       :headers {"content-type" "application/json; charset=utf-8"}
+       :body (json/write-str spec)})))
+
+(def ^:private docs-html
+  "Minimal HTML page that loads Scalar API reference from CDN."
+  "<!DOCTYPE html>
+<html>
+<head>
+  <title>API Reference</title>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+</head>
+<body>
+  <script id=\"api-reference\" data-url=\"./openapi.json\"></script>
+  <script src=\"https://cdn.jsdelivr.net/npm/@scalar/api-reference\"></script>
+</body>
+</html>")
+
+(defn docs-page
+  "Handler: serve the Scalar API reference HTML page."
+  []
+  (fn [_request]
+    {:status 200
+     :headers {"content-type" "text/html; charset=utf-8"}
+     :body docs-html}))

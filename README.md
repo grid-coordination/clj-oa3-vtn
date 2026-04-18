@@ -215,7 +215,7 @@ Key events: `::http-request` (method, uri, status, duration-ms, remote-addr), `:
 
 ```bash
 clojure -M:test
-# 60 tests, 273 assertions
+# 64 tests, 290 assertions
 ```
 
 ### Integration Tests
@@ -266,6 +266,7 @@ src/openadr3/vtn/
     notifiers.clj        — GET /notifiers
     topics.clj           — MQTT topic discovery (12 endpoints)
     auth.clj             — Auth stubs
+    docs.clj             — API docs: filtered OpenAPI spec + Scalar UI
     common.clj           — ID gen, metadata, pagination, error responses
   http.clj              — HttpServer Component (Jetty wrapper)
   middleware.clj         — Context path, JSON response, logging
@@ -291,6 +292,22 @@ src/openadr3/vtn/
 | Validation | [Malli](https://github.com/metosin/malli) — wire-format entity schemas enforced at storage boundary + Legba OpenAPI validation |
 | Entities | [clj-oa3](../clj-oa3) (shared schemas and coercion) |
 | Time | [tick](https://github.com/juxt/tick) |
+
+## API Documentation (Scalar)
+
+The VEN port automatically serves interactive API documentation:
+
+- **`/docs`** — Scalar API reference UI (browse endpoints, try requests)
+- **`/openapi.json`** — Filtered OpenAPI spec (JSON, only includes active endpoints)
+
+The spec is filtered at startup to match the active `:ven-routes` config, so users only see endpoints that actually respond. No build step — Scalar loads from CDN.
+
+To customize the docs page title and description, add to your config:
+
+```edn
+{:docs-title "My Price Server API"
+ :docs-description "Electricity pricing via OpenADR 3.1.0"}
+```
 
 ## OpenAPI Spec
 

@@ -37,9 +37,9 @@
 
 (def ^:private default-tags
   [{"name" "programs"
-    "description" "List available programs. Each program represents a rate schedule × location combination (e.g. `EELEC-013532223` for PG&E residential on a specific circuit, or `MOER-PGE` for GHG emissions in the PG&E region). Start here to find the program relevant to you."}
+    "description" "List available programs. Each program represents a rate schedule × location combination (e.g. `EELEC-013532223` for PG&E residential on a specific circuit, or `MOER-PGE` for GHG emissions in the PG&E region). Start here to find the program relevant to you.\n\n**Finding a program by name:** The API returns programs in pages of up to 50. To find a specific program, paginate through the results and match on `programName`. For example, to find PG&E residential pricing for the Menlo substation, look for `programName: \"EELEC-024131103\"`. Note the `id` field (a UUID) — you'll need it to query events.\n\nExample: `GET /programs?skip=0&limit=50`, then filter the response for your `programName`. Repeat with `skip=50`, `skip=100`, etc. until found."}
    {"name" "events"
-    "description" "Fetch pricing and emissions data. Each event covers one day with 24 hourly intervals. Query by `programID` to get events for a specific program. Intervals contain either `PRICE` (USD/kWh) or `GHG` (g CO2/kWh) payloads."}
+    "description" "Fetch pricing and emissions data. Each event covers one day with 24 hourly intervals. Query by `programID` (the UUID from the programs endpoint) to get events for a specific program. Intervals contain either `PRICE` (USD/kWh) or `GHG` (g CO2/kWh) payloads.\n\nExample: `GET /events?programID=bb4a75a7-d7b5-49c4-af94-55a6911300d3` returns daily events for that program."}
    {"name" "notifiers"
     "description" "Discover the MQTT broker for real-time push notifications. Returns broker URLs and authentication details."}
    {"name" "MQTT_notifier"

@@ -10,7 +10,8 @@
             [openadr3.vtn.notifier :as notifier]
             [openadr3.vtn.http :as http]
             [openadr3.vtn.handler :as handler]
-            [openadr3.vtn.handler.docs :as docs]))
+            [openadr3.vtn.handler.docs :as docs]
+            [openadr3.vtn.nrepl :as nrepl]))
 
 (defn- make-bl-handler
   "Build the BL port Ring handler."
@@ -48,19 +49,23 @@
    All writes through :storage get validation + MQTT notifications."
   ([] (system-map {}))
   ([overrides]
-   (let [cfg (merge (config/load-config) overrides)]
-     (component/system-map
-      :config            (config/new-config overrides)
-      :raw-storage       (component/using (storage-component cfg) [:config])
-      :validated-storage (component/using (validated/new-validating-storage) [:raw-storage])
-      :mqtt-publisher    (component/using (mqtt/new-mqtt-publisher) [:config])
-      :notifier          (component/using (notifier/new-notifier) [:mqtt-publisher])
-      :storage           (component/using (notifying/new-notifying-storage)
-                                          [:validated-storage :notifier])
-      :http-server-bl    (component/using
-                          (http/new-http-server (:bl-port cfg) :bl make-bl-handler)
-                          [:config :storage])
-      :http-server-ven   (component/using
-                          (http/new-http-server (:ven-port cfg) :ven
-                                                make-ven-handler make-ven-docs)
-                          [:config :storage])))))
+   (let [cfg      (merge (config/load-config) overrides)
+         nrepl-cfg (:nrepl cfg)]
+     (cond-> (component/system-map
+              :config            (config/new-config overrides)
+              :raw-storage       (component/using (storage-component cfg) [:config])
+              :validated-storage (component/using (validated/new-validating-storage) [:raw-storage])
+              :mqtt-publisher    (component/using (mqtt/new-mqtt-publisher) [:config])
+              :notifier          (component/using (notifier/new-notifier) [:mqtt-publisher])
+              :storage           (component/using (notifying/new-notifying-storage)
+                                                  [:validated-storage :notifier])
+              :http-server-bl    (component/using
+                                  (http/new-http-server (:bl-port cfg) :bl make-bl-handler)
+                                  [:config :storage])
+              :http-server-ven   (component/using
+                                  (http/new-http-server (:ven-port cfg) :ven
+                                                        make-ven-handler make-ven-docs)
+                                  [:config :storage]))
+       (:enabled nrepl-cfg)
+       (assoc :nrepl (nrepl/new-server (:port nrepl-cfg 7888)
+                                       (:bind nrepl-cfg "localhost")))))))

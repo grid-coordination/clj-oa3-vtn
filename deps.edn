@@ -38,7 +38,10 @@
         org.clojure/core.memoize      {:mvn/version "1.2.281"}
 
         ;; Structured logging
-        com.brunobonacci/mulog        {:mvn/version "0.10.1"}}
+        com.brunobonacci/mulog        {:mvn/version "0.10.1"}
+
+        ;; nREPL server (optional, for production inspection)
+        nrepl/nrepl                   {:mvn/version "1.6.0"}}
 
  :aliases {:dev {:extra-paths ["dev"]
                  :extra-deps {babashka/process {:mvn/version "0.6.23"}

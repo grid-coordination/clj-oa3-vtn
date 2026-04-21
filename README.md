@@ -145,7 +145,12 @@ Default config in `resources/config.edn`:
  ;; Controls what GET /notifiers returns on each port.
  :ven-notifiers {:MQTT {:authentication {:method "ANONYMOUS"}}}
  :bl-notifiers  {:MQTT {:authentication {:method "ANONYMOUS"}}
-                 :WEBHOOK true}}
+                 :WEBHOOK true}
+
+ ;; nREPL server for production inspection (disabled by default).
+ ;; Access via SSH tunnel or ECS execute-command — never expose publicly.
+ ;; :nrepl {:enabled true, :port 7888, :bind "localhost"}
+ }
 ```
 
 The `:ven-routes` map controls which resources the VEN port exposes. Disabled resources return 404/405 and their MQTT topic discovery endpoints are also suppressed. See [doc/mqtt-broker-security.md](doc/mqtt-broker-security.md) for MQTT broker ACL configuration.
@@ -182,11 +187,20 @@ The Component system map:
 :storage           → NotifyingStorage — auto-publishes MQTT on C/U/D (wraps :validated-storage)
 :http-server-bl    → Jetty on BL port, full CRUD routes (depends on :storage, :config)
 :http-server-ven   → Jetty on VEN port, read+subscribe routes (depends on :storage, :config)
+:nrepl             → nREPL server (optional, only when :nrepl :enabled is true)
 ```
 
 ### nREPL
 
-The nREPL server auto-assigns a free port and writes it to `.nrepl-port`. CIDER (`cider-connect`) and clojure-mcp both discover this file automatically.
+**Development:** The nREPL server auto-assigns a free port and writes it to `.nrepl-port`. CIDER (`cider-connect`) and clojure-mcp both discover this file automatically.
+
+**Production:** Enable the embedded nREPL server for live inspection of a running VTN:
+
+```edn
+:nrepl {:enabled true, :port 7888, :bind "localhost"}
+```
+
+Disabled by default — the component is omitted from the system map entirely when `:enabled` is false or absent. Bind to `localhost` only and access via SSH tunnel or `aws ecs execute-command`. Never expose the nREPL port publicly.
 
 ### Logging
 
@@ -275,6 +289,7 @@ src/openadr3/vtn/
   storage/dynamo.clj    — DynamoDB implementation (eventStart GSIs, per-page caching)
   storage/validated.clj — Validating decorator (Malli schema checks on write)
   storage/notifying.clj — Notifying decorator (auto-publishes MQTT on C/U/D)
+  nrepl.clj             — Optional nREPL server Component (production inspection)
   notifier.clj          — Notifier Component (MQTT topic routing, nil-safe)
   mqtt.clj              — MqttPublisher Component (Paho)
   schema.clj            — Wire-format Malli schemas, entity coercion bridge to clj-oa3
@@ -292,6 +307,7 @@ src/openadr3/vtn/
 | Validation | [Malli](https://github.com/metosin/malli) — wire-format entity schemas enforced at storage boundary + Legba OpenAPI validation |
 | Entities | [clj-oa3](../clj-oa3) (shared schemas and coercion) |
 | Time | [tick](https://github.com/juxt/tick) |
+| nREPL | [nREPL](https://nrepl.org/) — optional, for production inspection |
 
 ## API Documentation (Scalar)
 

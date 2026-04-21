@@ -9,4 +9,9 @@
  ;; Controls what GET /notifiers returns on each port.
  :ven-notifiers {:MQTT {:authentication {:method "ANONYMOUS"}}}
  :bl-notifiers  {:MQTT {:authentication {:method "ANONYMOUS"}}
-                 :WEBHOOK true}}
+                 :WEBHOOK true}
+
+ ;; nREPL server for production inspection (disabled by default).
+ ;; Access via SSH tunnel or ECS execute-command — never expose publicly.
+ ;; :nrepl {:enabled true, :port 7888, :bind "localhost"}
+ }

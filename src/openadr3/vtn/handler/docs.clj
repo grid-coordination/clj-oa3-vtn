@@ -35,6 +35,18 @@
                           :when (seq kept)]
                       [path kept]))))))
 
+(def ^:private default-tags
+  [{"name" "programs"
+    "description" "List available programs. Each program represents a rate schedule × location combination (e.g. `EELEC-013532223` for PG&E residential on a specific circuit, or `MOER-PGE` for GHG emissions in the PG&E region). Start here to find the program relevant to you."}
+   {"name" "events"
+    "description" "Fetch pricing and emissions data. Each event covers one day with 24 hourly intervals. Query by `programID` to get events for a specific program. Intervals contain either `PRICE` (USD/kWh) or `GHG` (g CO2/kWh) payloads."}
+   {"name" "notifiers"
+    "description" "Discover the MQTT broker for real-time push notifications. Returns broker URLs and authentication details."}
+   {"name" "MQTT_notifier"
+    "description" "MQTT topic discovery. Find the exact topic strings to subscribe to for a specific program's event notifications."}
+   {"name" "Auth"
+    "description" "Authentication endpoints. No authentication is currently required — all endpoints are read-only and publicly accessible."}])
+
 (defn- brand-spec
   "Add server metadata to the spec for a branded docs page."
   [spec config]
@@ -45,7 +57,8 @@
         (assoc-in ["info" "description"]
                   (or (:docs-description config)
                       "OpenADR 3.1.0 Virtual Top Node — read-only API for programs, events, and notifications."))
-        (assoc "servers" [{"url" ctx}]))))
+        (assoc "servers" [{"url" ctx}])
+        (assoc "tags" (or (:docs-tags config) default-tags)))))
 
 (defn openapi-yaml
   "Handler: serve the filtered OpenAPI spec as YAML."

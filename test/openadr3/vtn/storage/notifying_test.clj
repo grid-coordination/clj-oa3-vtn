@@ -156,3 +156,17 @@
     (let [_e (store/create-event *storage* (make-event "direct-write"))]
       (is (= 1 (count (filter #(= "EVENT" (:object-type %)) (notifications))))
           "Direct storage write should trigger notification — this is the fetcher use case"))))
+
+(deftest suppress-notify-event-test
+  (testing "create-event with ^:suppress-notify metadata skips notification"
+    (let [event (with-meta (make-event "backfill") {:suppress-notify true})
+          _e    (store/create-event *storage* event)]
+      (is (empty? (notifications))
+          "Backfill writes tagged ^:suppress-notify must not trigger MQTT notify")))
+
+  (clear-notifications!)
+
+  (testing "subsequent create-event without metadata still notifies"
+    (let [_e (store/create-event *storage* (make-event "live"))]
+      (is (= 1 (count (notifications)))
+          "Untagged writes still produce notifications"))))

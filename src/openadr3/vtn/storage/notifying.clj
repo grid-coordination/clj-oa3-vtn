@@ -3,10 +3,18 @@
    Wraps any VtnStorage implementation and publishes MQTT notifications
    on create, update, and delete operations. Reads delegate unchanged.
 
+   Callers can suppress the notification for an individual write by
+   attaching `^:suppress-notify` metadata to the input map — used by
+   bulk historical backfill to avoid flooding MQTT subscribers with
+   notifications for stale events.
+
    As a Component, depends on :validated-storage and :notifier."
   (:require [com.stuartsierra.component :as component]
             [openadr3.vtn.storage :as storage]
             [openadr3.vtn.notifier :as notifier]))
+
+(defn- suppress-notify? [obj]
+  (boolean (:suppress-notify (meta obj))))
 
 (defrecord NotifyingStorage [validated-storage notifier]
   component/Lifecycle
@@ -48,7 +56,8 @@
 
   (create-event [_ event]
     (let [created (storage/create-event validated-storage event)]
-      (notifier/notify! notifier "EVENT" "CREATE" created)
+      (when-not (suppress-notify? event)
+        (notifier/notify! notifier "EVENT" "CREATE" created))
       created))
 
   (update-event [_ id event]

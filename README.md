@@ -184,7 +184,7 @@ The Component system map:
 :validated-storage → ValidatingStorage — Malli schema checks on write (wraps :raw-storage)
 :mqtt-publisher    → Paho MQTT client (depends on :config)
 :notifier          → routes C/U/D to MQTT topics (depends on :mqtt-publisher)
-:storage           → NotifyingStorage — auto-publishes MQTT on C/U/D (wraps :validated-storage)
+:storage           → NotifyingStorage — auto-publishes MQTT on C/U/D (wraps :validated-storage; opt-out per-write via ^:suppress-notify metadata)
 :http-server-bl    → Jetty on BL port, full CRUD routes (depends on :storage, :config)
 :http-server-ven   → Jetty on VEN port, read+subscribe routes (depends on :storage, :config)
 :nrepl             → nREPL server (optional, only when :nrepl :enabled is true)
@@ -229,7 +229,7 @@ Key events: `::http-request` (method, uri, status, duration-ms, remote-addr), `:
 
 ```bash
 clojure -M:test
-# 64 tests, 290 assertions
+# 65 tests, 292 assertions
 ```
 
 ### Integration Tests
@@ -288,7 +288,7 @@ src/openadr3/vtn/
   storage/memory.clj    — Atom-backed implementation
   storage/dynamo.clj    — DynamoDB implementation (eventStart GSIs, per-page caching)
   storage/validated.clj — Validating decorator (Malli schema checks on write)
-  storage/notifying.clj — Notifying decorator (auto-publishes MQTT on C/U/D)
+  storage/notifying.clj — Notifying decorator (auto-publishes MQTT on C/U/D; ^:suppress-notify opt-out)
   nrepl.clj             — Optional nREPL server Component (production inspection)
   notifier.clj          — Notifier Component (MQTT topic routing, nil-safe)
   mqtt.clj              — MqttPublisher Component (Paho)

@@ -88,6 +88,9 @@ curl -X POST http://localhost:8081/openadr3/3.1.0/programs \
 # Read programs (VEN port)
 curl http://localhost:8080/openadr3/3.1.0/programs
 
+# Look up a program by name (no scan, GSI-backed)
+curl 'http://localhost:8080/openadr3/3.1.0/programs?programName=PG%26E-TOU'
+
 # Create an event with pricing (intervalPeriod required for GSI indexing)
 PROGRAM_ID=<id-from-above>
 curl -X POST http://localhost:8081/openadr3/3.1.0/events \
@@ -327,7 +330,7 @@ To customize the docs page title and description, add to your config:
 
 ## OpenAPI Spec
 
-The VTN uses the OpenADR 3.1.0 specification at `resources/openadr3.yaml`. This is a local copy with two patches for Legba compatibility — see [doc/openapi-spec-legba-patches.md](doc/openapi-spec-legba-patches.md).
+The VTN uses the OpenADR 3.1.0 specification at `resources/openadr3.yaml`. This is a local copy with patches for Legba compatibility and a few local extensions — see [doc/openapi-spec-legba-patches.md](doc/openapi-spec-legba-patches.md).
 
 ## License
 

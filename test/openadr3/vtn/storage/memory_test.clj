@@ -137,6 +137,24 @@
                    (set (map :id page1))
                    (set (map :id page2))))))))
 
+;; --- programName filtering tests ---
+
+(deftest program-name-filter-test
+  (store/create-program *storage* (make-program "PG&E-TOU"))
+  (store/create-program *storage* (make-program "SCE-TOU"))
+  (store/create-program *storage* (make-program "SDG&E-TOU"))
+
+  (testing "exact match returns single program"
+    (let [results (store/list-programs *storage* {:programName "SCE-TOU"})]
+      (is (= 1 (count results)))
+      (is (= "SCE-TOU" (:programName (first results))))))
+
+  (testing "no match returns empty"
+    (is (empty? (store/list-programs *storage* {:programName "no-such-program"}))))
+
+  (testing "no filter returns all"
+    (is (= 3 (count (store/list-programs *storage* {}))))))
+
 ;; --- Target filtering tests ---
 
 (deftest target-filtering-test

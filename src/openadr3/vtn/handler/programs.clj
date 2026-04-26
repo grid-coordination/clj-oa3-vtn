@@ -4,12 +4,14 @@
             [openadr3.vtn.handler.common :as common]))
 
 (defn search-all
-  "GET /programs — search all programs with optional targets, skip, limit."
+  "GET /programs — search all programs with optional targets, programName, skip, limit."
   [storage]
   (fn [request]
     (let [params (:query-params request)
-          opts (merge (common/parse-pagination params)
-                      (when-let [t (:targets params)] {:targets t}))]
+          opts (cond-> (common/parse-pagination params)
+                 (:targets params)     (assoc :targets (:targets params))
+                 (common/get-param params :programName)
+                 (assoc :programName (common/get-param params :programName)))]
       {:status 200
        :body (store/list-programs storage opts)})))
 

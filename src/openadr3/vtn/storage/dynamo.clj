@@ -198,8 +198,9 @@
         limit (or limit 50)]
     (->> coll (drop skip) (take limit) vec)))
 
-(defn- find-program-by-name
-  "Check if a program with the given name exists using the programName-index GSI."
+(defn- query-programs-by-name
+  "Query the programName-index GSI for programs matching the given name.
+   Returns a vector of program maps (programNames are unique, so 0 or 1)."
   [client table name]
   (let [resp (aws/invoke client {:op :Query
                                  :request {:TableName table
@@ -208,7 +209,12 @@
                                            :ExpressionAttributeValues {":ot" {:S "PROGRAM"}
                                                                        ":pn" {:S name}}
                                            :Limit 1}})]
-    (first (mapv item->obj (:Items resp)))))
+    (mapv item->obj (:Items resp))))
+
+(defn- find-program-by-name
+  "Check if a program with the given name exists using the programName-index GSI."
+  [client table name]
+  (first (query-programs-by-name client table name)))
 
 ;; ---------------------------------------------------------------------------
 ;; Cache construction
@@ -308,9 +314,14 @@
 
   storage/VtnStorage
 
-  ;; Programs — cached
+  ;; Programs — cached for unfiltered listing; programName lookups bypass
+  ;; the cache and query the programName-index GSI directly so callers
+  ;; (e.g. price-server's ensure-program!) get fresh results without
+  ;; scanning the full collection.
   (list-programs [_ opts]
-    (paginate ((:programs-fn caches) table) opts))
+    (if-let [pname (:programName opts)]
+      (paginate (query-programs-by-name client table pname) opts)
+      (paginate ((:programs-fn caches) table) opts)))
 
   (get-program [_ id]
     (get-item client table "PROGRAM" id))

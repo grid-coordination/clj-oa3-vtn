@@ -31,6 +31,21 @@
     (let [resp (invoke programs/search-all)]
       (is (= 2 (count (:body resp)))))))
 
+(deftest search-all-by-program-name-test
+  (invoke programs/create {:body {:programName "PG&E-TOU"}})
+  (invoke programs/create {:body {:programName "SCE-TOU"}})
+
+  (testing "exact match (string key — Legba's wire format)"
+    (let [resp (invoke programs/search-all {:query-params {"programName" "SCE-TOU"}})]
+      (is (= 200 (:status resp)))
+      (is (= 1 (count (:body resp))))
+      (is (= "SCE-TOU" (get-in resp [:body 0 :programName])))))
+
+  (testing "no match returns empty"
+    (let [resp (invoke programs/search-all {:query-params {"programName" "no-such"}})]
+      (is (= 200 (:status resp)))
+      (is (= [] (:body resp))))))
+
 (deftest create-test
   (testing "returns 201 with metadata"
     (let [resp (invoke programs/create {:body {:programName "new-prog"}})]

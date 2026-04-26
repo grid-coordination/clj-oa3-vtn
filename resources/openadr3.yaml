@@ -75,6 +75,15 @@ paths:
             type: array
             items:
               $ref: '#/components/schemas/target'
+        - name: programName
+          in: query
+          description: |
+            Filter results to programs whose programName matches exactly.
+            Local extension pending oadr3-org/specification#418 — enables
+            direct lookup without scanning the full program collection.
+          required: false
+          schema:
+            type: string
         - name: skip
           in: query
           description: number of records to skip for pagination.

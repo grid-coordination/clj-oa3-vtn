@@ -38,6 +38,26 @@ The `programRequest` schema uses `anyOf` with a `discriminator` on `objectType` 
 
 Without this, programs with `payloadDescriptors` (e.g. PRICE descriptors) are rejected by both request and response validation.
 
+## 4. `programName` query parameter on `GET /programs`
+
+A local extension that adds a `programName` query parameter to `GET /programs`, enabling direct lookup of a program by name (backed by the `programName-index` GSI on DynamoDB) instead of scanning the full collection. Tracks upstream proposal oadr3-org/specification#418.
+
+```diff
+       parameters:
+         - name: targets
+           ...
++        - name: programName
++          in: query
++          description: |
++            Filter results to programs whose programName matches exactly.
++            Local extension pending oadr3-org/specification#418 — enables
++            direct lookup without scanning the full program collection.
++          required: false
++          schema:
++            type: string
+         - name: skip
+```
+
 ## Applying the patches
 
 When updating `resources/openadr3.yaml` from a new spec release:

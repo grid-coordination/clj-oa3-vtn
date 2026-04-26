@@ -58,7 +58,11 @@
   (list-programs [_ opts]
     (filter-and-paginate
      (:programs @state)
-     (fn [p] (match-targets? p (:targets opts)))
+     (fn [p]
+       (and (if-let [pname (:programName opts)]
+              (= pname (:programName p))
+              true)
+            (match-targets? p (:targets opts))))
      opts))
 
   (get-program [_ id]

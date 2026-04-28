@@ -3,7 +3,7 @@
         org.clojure/data.json          {:mvn/version "2.5.1"}
 
         ;; OpenADR3 entity library (schemas, coercion)
-        energy.grid-coordination/clj-oa3 {:mvn/version "0.2.3"}
+        energy.grid-coordination/clj-oa3 {:mvn/version "0.2.4"}
 
         ;; HTTP routing from OpenAPI spec
         com.s-exp/legba                {:mvn/version "1.0.0-alpha147"}
@@ -50,7 +50,8 @@
            :build {:deps {io.github.clojure/tools.build
                           {:git/tag "v0.10.10" :git/sha "deedd62"}
                           slipset/deps-deploy {:mvn/version "0.2.2"}
-                          com.dcj/codox-md {:mvn/version "0.1.0"}}
+                          com.dcj/codox-md {:mvn/version "0.2.0"}
+                          com.dcj/build-provenance {:mvn/version "0.2.0"}}
                    :ns-default build}
 
            :nrepl {:extra-paths ["dev"]

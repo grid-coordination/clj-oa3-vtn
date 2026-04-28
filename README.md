@@ -2,6 +2,8 @@
 
 [![Clojars Project](https://img.shields.io/clojars/v/energy.grid-coordination/clj-oa3-vtn.svg)](https://clojars.org/energy.grid-coordination/clj-oa3-vtn)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![md-docs](https://img.shields.io/badge/md--docs-included-green)](https://github.com/dcj/codox-md)
+[![build-provenance](https://img.shields.io/badge/build--provenance-included-blue)](https://github.com/dcj/build-provenance)
 
 Production OpenADR 3.1.0 Virtual Top Node (VTN) server in Clojure.
 

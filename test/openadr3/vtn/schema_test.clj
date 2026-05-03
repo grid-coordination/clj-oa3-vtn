@@ -28,7 +28,7 @@
       (is (= "test" (:openadr.program/name coerced)))
       (is (= :openadr.object-type/program (:openadr/object-type coerced)))
       (is (string? (:openadr/id coerced)))
-      (is (inst? (:openadr/created coerced))))))
+      (is (instance? java.time.ZonedDateTime (:openadr/created coerced))))))
 
 (deftest coerce-stored-event-test
   (testing "coerces a stored event with intervals"

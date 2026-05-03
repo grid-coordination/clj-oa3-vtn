@@ -334,6 +334,14 @@ To customize the docs page title and description, add to your config:
 
 The VTN uses the OpenADR 3.1.0 specification at `resources/openadr3.yaml`. This is a local copy with patches for Legba compatibility and a few local extensions — see [doc/openapi-spec-legba-patches.md](doc/openapi-spec-legba-patches.md).
 
+## Contributing
+
+Issues, Discussions, and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow (and the dev commands: tests, lint, nREPL). In short:
+
+- **Questions, design discussion, spec-interpretation gaps** → [Discussions](https://github.com/grid-coordination/clj-oa3-vtn/discussions)
+- **Confirmed bugs, validation/handler/storage fixes, doc errors** → [Issues](https://github.com/grid-coordination/clj-oa3-vtn/issues)
+- **Patches** → pull requests; please open a Discussion or Issue first for non-trivial changes (new resource types, new storage backends, new spec versions, schema or middleware changes)
+
 ## License
 
 Copyright © 2026 Clark Communications Corporation. Released under the [MIT License](LICENSE).

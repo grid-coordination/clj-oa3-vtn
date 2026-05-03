@@ -2,7 +2,13 @@
   "Tests for VEN handler map route enablement."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.data.json :as json]
-            [openadr3.vtn.handler :as handler]))
+            [jsonista.core :as jsonista]
+            [s-exp.legba.json :as legba-json]
+            [openadr3.vtn.handler :as handler]
+            ;; Loaded for its side-effect: configures Legba's Jackson mapper
+            ;; to emit JavaTime values as ISO strings (see vtn/time.clj).
+            [openadr3.vtn.time])
+  (:import [java.time Duration Instant ZoneOffset]))
 
 ;; Stubs — we only care about which route keys are present, not handlers
 (def stub-storage nil)
@@ -105,3 +111,17 @@
         (is (= "about:blank" (get body "type")))
         (is (= "Not Found" (get body "title")))
         (is (= 404 (get body "status")))))))
+
+(deftest legba-jackson-emits-iso-strings-for-java-time
+  (testing "Legba's Jackson mapper emits Duration/ZonedDateTime as ISO strings,
+            not numeric timestamps — required for OA3 spec validator"
+    (let [body  {:intervalPeriod
+                 {:start    (.atZone (Instant/parse "2026-05-03T07:00:00Z")
+                                     ZoneOffset/UTC)
+                  :duration (Duration/ofHours 24)}}
+          out   (jsonista/write-value-as-string
+                 body legba-json/json-mapper-default)]
+      (is (re-find #"\"start\":\"2026-05-03T07:00:00Z\"" out)
+          "ZonedDateTime must serialise as ISO string")
+      (is (re-find #"\"duration\":\"PT24H\"" out)
+          "Duration must serialise as ISO string, not numeric nanos"))))

@@ -15,8 +15,11 @@
 
   Inbound parsing accepts arbitrary RFC 3339 offsets (`Z`, `+00:00`,
   `-07:00`, …) and the VTN-RI's non-standard space-separated form."
-  (:require [clojure.data.json :as json])
-  (:import [java.time Duration OffsetDateTime ZoneOffset ZonedDateTime]
+  (:require [clojure.data.json :as json]
+            [s-exp.legba.json :as legba-json])
+  (:import [com.fasterxml.jackson.databind ObjectMapper SerializationFeature]
+           [com.fasterxml.jackson.datatype.jsr310 JavaTimeModule]
+           [java.time Duration OffsetDateTime ZoneOffset ZonedDateTime]
            [java.time.format DateTimeFormatter]))
 
 ;; ---------------------------------------------------------------------------
@@ -116,3 +119,22 @@
   Duration
   (-write [d out options]
     (json/-write (duration->iso d) out options)))
+
+;; ---------------------------------------------------------------------------
+;; Legba/Jackson serialisation
+;;
+;; Legba (s-exp.legba.json) uses jsonista/Jackson — not clojure.data.json —
+;; for HTTP response serialisation. Without configuration, Jackson emits
+;; `Duration` as a numeric (nanos) value and `Instant`/`ZonedDateTime` as a
+;; numeric epoch, both of which fail the OA3 spec validator (`number found,
+;; string expected`). Mutate Legba's default ObjectMapper once at namespace
+;; load to register `JavaTimeModule` and disable timestamp emission so
+;; `Duration` → `PT1H` and ZDT → ISO 8601 string on the wire.
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private _legba-jackson-java-time
+  (let [^ObjectMapper m legba-json/json-mapper-default]
+    (.registerModule m (JavaTimeModule.))
+    (.disable m SerializationFeature/WRITE_DATES_AS_TIMESTAMPS)
+    (.disable m SerializationFeature/WRITE_DURATIONS_AS_TIMESTAMPS)
+    :registered))

@@ -81,16 +81,16 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- make-event
-  "Build a valid stored event with intervalPeriod."
+  "Build a valid stored event with intervalPeriod (storage canon: ZDT/Duration)."
   [program-id]
-  (common/add-metadata
-   {:programID program-id
-    :eventName "test-event"
-    :intervalPeriod {:start "2025-01-15T00:00:00Z"
-                     :duration "PT1H"}
-    :intervals [{:id 0
-                 :payloads [{:type "PRICE" :values [0.25]}]}]}
-   "EVENT"))
+  (-> {:programID program-id
+       :eventName "test-event"
+       :intervalPeriod {:start "2025-01-15T00:00:00Z"
+                        :duration "PT1H"}
+       :intervals [{:id 0
+                    :payloads [{:type "PRICE" :values [0.25]}]}]}
+      common/coerce-event-body
+      (common/add-metadata "EVENT")))
 
 (defn- make-subscription
   "Build a valid stored subscription."
@@ -149,12 +149,12 @@
   (testing "intervalPeriod without :start fails"
     (is (some? (m/explain schema/WireEvent
                           (assoc (make-event "p1")
-                                 :intervalPeriod {:duration "PT1H"})))))
+                                 :intervalPeriod {:duration (java.time.Duration/parse "PT1H")})))))
 
-  (testing "non-ISO start fails"
+  (testing "non-ZDT start fails (storage canon enforces ZonedDateTime)"
     (is (some? (m/explain schema/WireEvent
                           (assoc (make-event "p1")
-                                 :intervalPeriod {:start "not-a-date"}))))))
+                                 :intervalPeriod {:start "2025-01-15T00:00:00Z"}))))))
 
 (deftest wire-subscription-schema-test
   (testing "valid subscription passes"

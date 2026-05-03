@@ -4,15 +4,15 @@
             [openadr3.vtn.handler.common :as common]))
 
 (defn search-all
-  "GET /events — search events with optional programID, targets, skip, limit.
-   Defaults to today+tomorrow date window to avoid loading entire event history."
+  "GET /events — search events with optional programID, targets, skip, limit,
+   dateStart, dateEnd. Defaults to the [now, now+2d] overlap window when no
+   explicit range is given (zone-neutral)."
   [storage]
   (fn [request]
     (let [params (:query-params request)
           gp     (partial common/get-param params)
-          [ds de] (common/event-date-range params)
           opts   (merge (common/parse-pagination params)
-                        {:date-start ds :date-end de}
+                        (common/event-search-window params)
                         (when-let [pid (gp :programID)] {:programID pid})
                         (when-let [t (gp :targets)] {:targets t}))]
       {:status 200
@@ -23,7 +23,7 @@
    Validates that programID references an existing program."
   [storage]
   (fn [request]
-    (let [body      (:body request)
+    (let [body       (common/coerce-event-body (:body request))
           program-id (:programID body)]
       (if (and program-id (nil? (store/get-program storage program-id)))
         (common/bad-request (str "Program " program-id " not found"))
@@ -46,7 +46,7 @@
   [storage]
   (fn [request]
     (let [id   (get-in request [:path-params :eventID])
-          body (:body request)]
+          body (common/coerce-event-body (:body request))]
       (if-let [existing (store/get-event storage id)]
         (let [updated (common/touch-metadata existing body)
               stored  (store/update-event storage id updated)]

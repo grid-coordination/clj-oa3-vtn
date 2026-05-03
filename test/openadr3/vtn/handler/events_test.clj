@@ -4,7 +4,9 @@
             [openadr3.vtn.storage :as store]
             [openadr3.vtn.storage.memory :as mem]
             [openadr3.vtn.handler.common :as common]
-            [openadr3.vtn.handler.events :as events]))
+            [openadr3.vtn.handler.events :as events]
+            [openadr3.vtn.time :as vtn-time])
+  (:import [java.time Duration ZonedDateTime]))
 
 (def ^:dynamic *storage* nil)
 
@@ -89,3 +91,87 @@
     (testing "delete"
       (is (= 200 (:status (invoke events/delete-by-id {:path-params {:eventID id}}))))
       (is (= 404 (:status (invoke events/get-by-id {:path-params {:eventID id}})))))))
+
+(deftest event-storage-canon-test
+  (let [prog (store/create-program *storage* (common/add-metadata {:programName "tz-prog"} "PROGRAM"))
+        resp (invoke events/create
+                     {:body {:programID (:id prog)
+                             :eventName "tz-event"
+                             :intervalPeriod {:start "2026-05-03T00:00:00-07:00"
+                                              :duration "PT1H"}}})]
+
+    (testing "stored event holds ZonedDateTime / Duration (storage canon)"
+      (is (= 201 (:status resp)))
+      (is (instance? ZonedDateTime (get-in resp [:body :createdDateTime])))
+      (is (instance? ZonedDateTime (get-in resp [:body :intervalPeriod :start])))
+      (is (instance? Duration (get-in resp [:body :intervalPeriod :duration]))))
+
+    (testing "wire offset is preserved on the in-memory ZDT"
+      (let [start (get-in resp [:body :intervalPeriod :start])]
+        (is (= "-07:00" (str (.getZone ^ZonedDateTime start))))))))
+
+;; ---------------------------------------------------------------------------
+;; Default filter — zone-neutral overlap [now, now+2d]
+;; ---------------------------------------------------------------------------
+
+(defn- create-event-at
+  "Create an event whose intervalPeriod is [start, start+duration]."
+  [program-id start duration]
+  (invoke events/create
+          {:body {:programID program-id
+                  :eventName (str "ev-" (System/nanoTime))
+                  :intervalPeriod {:start start
+                                   :duration duration}}}))
+
+(deftest default-window-overlap-test
+  (let [prog (store/create-program *storage*
+                                   (common/add-metadata {:programName "win-prog"} "PROGRAM"))
+        pid  (:id prog)
+        now  (vtn-time/now-zdt)
+        ;; helpers: minus seconds = ZDT in past, plus seconds = ZDT in future
+        minus (fn [n] (.minusSeconds now n))
+        plus  (fn [n] (.plusSeconds now n))]
+
+    (testing "active-now event is included"
+      ;; Started 1h ago, runs 2h — currently active
+      (let [e (:body (create-event-at pid (minus 3600) "PT2H"))
+            resp (invoke events/search-all {:query-params {}})
+            ids  (set (map :id (:body resp)))]
+        (is (contains? ids (:id e)))))
+
+    (testing "near-future event (within next 2d) is included"
+      ;; Starts in 30h, runs 1h
+      (let [e (:body (create-event-at pid (plus (* 30 3600)) "PT1H"))
+            resp (invoke events/search-all {:query-params {}})
+            ids  (set (map :id (:body resp)))]
+        (is (contains? ids (:id e)))))
+
+    (testing "completed event (ended 1h ago) is excluded"
+      (let [e (:body (create-event-at pid (minus (* 3 3600)) "PT2H"))
+            resp (invoke events/search-all {:query-params {}})
+            ids  (set (map :id (:body resp)))]
+        (is (not (contains? ids (:id e))))))
+
+    (testing "far-future event (starts in 5d) is excluded"
+      (let [e (:body (create-event-at pid (plus (* 5 24 3600)) "PT1H"))
+            resp (invoke events/search-all {:query-params {}})
+            ids  (set (map :id (:body resp)))]
+        (is (not (contains? ids (:id e))))))))
+
+(deftest explicit-range-test
+  (testing "explicit dateStart/dateEnd uses BETWEEN on intervalPeriod.start"
+    (let [prog (store/create-program *storage*
+                                     (common/add-metadata {:programName "exp-prog"} "PROGRAM"))
+          pid  (:id prog)
+          ;; Use far-future to ensure overlap default would NOT include them
+          base (vtn-time/parse-zdt "2030-01-01T00:00:00Z")
+          inside (.plusHours base 12)
+          before (.minusDays base 1)]
+      (create-event-at pid inside "PT1H")
+      (create-event-at pid before "PT1H")
+
+      (let [resp (invoke events/search-all
+                         {:query-params {"dateStart" "2030-01-01T00:00:00Z"
+                                         "dateEnd"   "2030-01-02T00:00:00Z"}})
+            ids  (map :id (:body resp))]
+        (is (= 1 (count ids)))))))

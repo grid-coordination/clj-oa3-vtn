@@ -20,7 +20,7 @@
   [storage]
   (fn [request]
     (try
-      (let [body (:body request)
+      (let [body    (common/coerce-program-body (:body request))
             program (common/add-metadata body "PROGRAM")
             created (store/create-program storage program)]
         {:status 201
@@ -44,7 +44,7 @@
   [storage]
   (fn [request]
     (let [id   (get-in request [:path-params :programID])
-          body (:body request)]
+          body (common/coerce-program-body (:body request))]
       (if-let [existing (store/get-program storage id)]
         (let [updated (common/touch-metadata existing body)
               stored  (store/update-program storage id updated)]

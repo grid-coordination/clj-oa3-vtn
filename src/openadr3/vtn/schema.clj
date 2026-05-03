@@ -7,7 +7,8 @@
   (:require [openadr3.entities :as entities]
             [openadr3.entities.schema :as schema]
             [malli.core :as m]
-            [malli.error :as me]))
+            [malli.error :as me])
+  (:import [java.time Duration ZonedDateTime]))
 
 ;; ---------------------------------------------------------------------------
 ;; Re-exports from clj-oa3 for convenience within VTN code
@@ -29,29 +30,29 @@
 (def Notification schema/Notification)
 
 ;; ---------------------------------------------------------------------------
-;; Wire-format Malli schemas for stored entities
+;; Storage-format Malli schemas
 ;;
-;; These schemas describe the camelCase keyword maps that the VTN stores
-;; internally (post add-metadata, pre-DynamoDB). They enforce required fields
-;; including those extracted as DynamoDB GSI attributes.
+;; These schemas describe the camelCase keyword maps that the VTN holds
+;; internally. The VTN's storage canon is `ZonedDateTime` for datetime
+;; fields and `Duration` for duration fields — wire strings have already
+;; been coerced by handler/common before reaching ValidatingStorage.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private iso-datetime-re
-  "Regex for ISO 8601 / RFC 3339 datetime strings."
-  #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+(def ^:private ZDT
+  [:fn {:error/message "must be a ZonedDateTime"} #(instance? ZonedDateTime %)])
 
-(def ^:private ISODatetime
-  [:and :string [:re iso-datetime-re]])
+(def ^:private Dur
+  [:fn {:error/message "must be a Duration"} #(instance? Duration %)])
 
 (def ^:private ObjectMetadata
   "Fields added by handler/common/add-metadata to every stored entity."
   [[:id :string]
-   [:createdDateTime ISODatetime]          ;; GSI: sort key for listings
-   [:modificationDateTime ISODatetime]])
+   [:createdDateTime ZDT]                  ;; GSI-projected; UTC-Z at the DDB boundary
+   [:modificationDateTime ZDT]])
 
 (def WireProgram
-  "Malli schema for a stored program (wire-format, keyword keys).
-   GSI fields: programName (programName-index SK)."
+  "Malli schema for a stored program (storage canon, keyword keys, ZDT
+   datetimes). GSI fields: programName (programName-index SK)."
   (into [:map {:closed false}]
         (concat ObjectMetadata
                 [[:objectType [:= "PROGRAM"]]
@@ -67,10 +68,10 @@
                  [:intervalPeriod {:optional true} :map]])))
 
 (def WireEvent
-  "Malli schema for a stored event (wire-format, keyword keys).
-   GSI fields: programID (programID-index, programID-eventStart-index),
-               intervalPeriod.start → eventStart (objectType-eventStart-index,
-               programID-eventStart-index)."
+  "Malli schema for a stored event (storage canon, keyword keys, ZDT/Duration
+   in time fields). GSI fields: programID (programID-index, programID-eventStart-index),
+   intervalPeriod.start → eventStart (objectType-eventStart-index,
+   programID-eventStart-index)."
   (into [:map {:closed false}]
         (concat ObjectMetadata
                 [[:objectType [:= "EVENT"]]
@@ -78,12 +79,12 @@
                                                          ;;      programID-eventStart-index PK
                  [:eventName {:optional true} :string]
                  [:priority {:optional true} :int]
-                 [:intervalPeriod                         ;; GSI: .start → eventStart
+                 [:intervalPeriod
                   [:map {:closed false}
-                   [:start ISODatetime]                   ;; GSI: objectType-eventStart-index SK,
-                                                          ;;      programID-eventStart-index SK
-                   [:duration {:optional true} :string]
-                   [:randomizeStart {:optional true} :string]]]
+                   [:start ZDT]                          ;; canonicalised to UTC Z for the
+                                                         ;; eventStart GSI sort key on write
+                   [:duration {:optional true} Dur]
+                   [:randomizeStart {:optional true} Dur]]]
                  [:intervals {:optional true}
                   [:vector
                    [:map {:closed false}
@@ -95,7 +96,7 @@
                  [:targets {:optional true} [:vector :map]]])))
 
 (def WireSubscription
-  "Malli schema for a stored subscription (wire-format, keyword keys).
+  "Malli schema for a stored subscription (storage canon, keyword keys).
    GSI fields: clientName (query filter), programID (programID-index)."
   (into [:map {:closed false}]
         (concat ObjectMetadata
@@ -118,7 +119,7 @@
    "SUBSCRIPTION" WireSubscription})
 
 (defn validate-entity!
-  "Validate a stored entity against its wire-format schema.
+  "Validate a stored entity against its storage-canon schema.
    Throws ex-info with :type :validation-error and Malli explanation on failure.
    Returns the entity unchanged on success."
   [entity]
@@ -154,14 +155,16 @@
   Takes:
     object-type — string, e.g. \"PROGRAM\", \"EVENT\"
     operation   — string, e.g. \"CREATE\", \"UPDATE\", \"DELETE\"
-    object      — the raw camelCase object map (as stored)
+    object      — the storage-canon entity (ZDT-bearing)
 
   Returns a map matching the OpenADR notification schema:
     {:objectType \"PROGRAM\"
      :operation  \"CREATE\"
-     :object     {... the full object with timestamps ...}}
+     :object     {... entity with ZDT/Duration fields ...}}
 
-  All timestamps in the object are already RFC 3339 (set by handler/common)."
+  ZDTs and Durations are serialised to canonical UTC Z / ISO 8601 by the
+  JSONWriter protocol extension when the payload is JSON-encoded for the
+  wire."
   [object-type operation object]
   {:objectType object-type
    :operation operation
@@ -185,26 +188,61 @@
 ;; Coerce stored objects for VTN internal logic
 ;; ---------------------------------------------------------------------------
 
-(defn coerce-stored
-  "Coerce a stored raw object (which already has objectType metadata)
-   into a namespaced entity for VTN internal logic.
+(defn- zdt->wire [v]
+  (if (instance? ZonedDateTime v)
+    (.format ^ZonedDateTime v java.time.format.DateTimeFormatter/ISO_INSTANT)
+    v))
 
-   The stored object is a camelCase map with :objectType set by add-metadata.
-   Returns a namespaced entity with :openadr/raw metadata."
+(defn- dur->wire [v]
+  (if (instance? Duration v) (.toString ^Duration v) v))
+
+(defn- entity->raw
+  "Produce a wire-shape (string-bearing) map from a storage-canon entity.
+   Used as the input to clj-oa3 entities/coerce — that library expects
+   strings on its input."
+  [obj]
+  (let [ip   (:intervalPeriod obj)
+        ip*  (some-> ip
+                     (cond->
+                      (:start ip)          (update :start zdt->wire)
+                      (:duration ip)       (update :duration dur->wire)
+                      (:randomizeStart ip) (update :randomizeStart dur->wire)))
+        ivs  (:intervals obj)
+        ivs* (when ivs
+               (mapv (fn [iv]
+                       (cond-> iv
+                         (:intervalPeriod iv)
+                         (update :intervalPeriod
+                                 (fn [x]
+                                   (cond-> x
+                                     (:start x)          (update :start zdt->wire)
+                                     (:duration x)       (update :duration dur->wire)
+                                     (:randomizeStart x) (update :randomizeStart dur->wire))))))
+                     ivs))]
+    (cond-> obj
+      (:createdDateTime obj)      (update :createdDateTime zdt->wire)
+      (:modificationDateTime obj) (update :modificationDateTime zdt->wire)
+      ip                          (assoc :intervalPeriod ip*)
+      ivs                         (assoc :intervals ivs*))))
+
+(defn coerce-stored
+  "Coerce a stored storage-canon object into a namespaced entity for VTN
+   internal logic. Bridges from the VTN's ZDT/Duration shape to clj-oa3's
+   string-bearing input form before delegating to entities/coerce."
   [stored-object]
-  (entities/coerce stored-object))
+  (entities/coerce (entity->raw stored-object)))
 
 (defn coerce-stored-programs
   "Coerce a sequence of stored program maps."
   [programs]
-  (mapv entities/->program programs))
+  (mapv (comp entities/->program entity->raw) programs))
 
 (defn coerce-stored-events
   "Coerce a sequence of stored event maps."
   [events]
-  (mapv entities/->event events))
+  (mapv (comp entities/->event entity->raw) events))
 
 (defn coerce-stored-subscriptions
   "Coerce a sequence of stored subscription maps."
   [subscriptions]
-  (mapv entities/->subscription subscriptions))
+  (mapv (comp entities/->subscription entity->raw) subscriptions))

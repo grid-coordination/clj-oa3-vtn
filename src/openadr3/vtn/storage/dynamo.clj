@@ -11,17 +11,54 @@
     objectType-eventStart-index: PK=objectType, SK=eventStart (date-range queries)
     programID-eventStart-index:  PK=programID, SK=eventStart (per-program date-range)
 
+  Wire-storage boundary
+    Entities held in memory are canonically `ZonedDateTime` /
+    `Duration`. At the DDB boundary:
+      * `:data` attr is a JSON blob; the JSONWriter protocol extension in
+        `vtn.time` serialises ZDT → canonical UTC Z and Duration → ISO.
+      * `:eventStart` GSI sort key is canonical UTC Z (lex-orderable
+        regardless of the wire offset on the input).
+    On read, the JSON blob is parsed and known datetime fields are
+    re-hydrated to ZDT / Duration before being returned.
+
   Caching:
     Programs: cached with long TTL (default 1 hour) — rarely change
     Events:   cached per-page with short TTL (default 5 min)
-              keyed by (programID, date-range, skip, limit)
+              keyed by canonical-string query args
     Caches invalidated on any mutation (create/update/delete)"
   (:require [cognitect.aws.client.api :as aws]
             [clojure.core.memoize :as memo]
             [clojure.data.json :as json]
             [com.brunobonacci.mulog :as mu]
             [com.stuartsierra.component :as component]
-            [openadr3.vtn.storage :as storage]))
+            [openadr3.vtn.storage :as storage]
+            [openadr3.vtn.time :as time])
+  (:import [java.time ZonedDateTime]))
+
+;; ---------------------------------------------------------------------------
+;; ZDT/Duration hydration on read
+;; ---------------------------------------------------------------------------
+
+(defn- hydrate-interval-period [ip]
+  (when ip
+    (cond-> ip
+      (string? (:start ip))          (update :start time/parse-zdt-maybe)
+      (string? (:duration ip))       (update :duration time/parse-duration-maybe)
+      (string? (:randomizeStart ip)) (update :randomizeStart time/parse-duration-maybe))))
+
+(defn- hydrate-interval [iv]
+  (cond-> iv
+    (:intervalPeriod iv) (update :intervalPeriod hydrate-interval-period)))
+
+(defn- hydrate-datetimes
+  "Walk a parsed-JSON object and convert known datetime/duration fields
+   from strings back to ZonedDateTime / Duration."
+  [obj]
+  (cond-> obj
+    (string? (:createdDateTime obj))      (update :createdDateTime time/parse-zdt-maybe)
+    (string? (:modificationDateTime obj)) (update :modificationDateTime time/parse-zdt-maybe)
+    (:intervalPeriod obj)                 (update :intervalPeriod hydrate-interval-period)
+    (:intervals obj)                      (update :intervals (fn [is] (mapv hydrate-interval is)))))
 
 ;; ---------------------------------------------------------------------------
 ;; DynamoDB helpers
@@ -33,26 +70,39 @@
   (aws/client {:api :dynamodb
                :region (keyword region)}))
 
+(defn- event-start-key
+  "Canonical UTC Z representation of an event's intervalPeriod.start, or nil
+   if the event has no start. Independent of the input ZDT's zone, so the
+   `:eventStart` GSI sort key is always lex-orderable regardless of the
+   wire offset on the original input."
+  [obj]
+  (when-let [^ZonedDateTime zdt (get-in obj [:intervalPeriod :start])]
+    (time/zdt->utc-z zdt)))
+
 (defn- ->item
-  "Convert a Clojure map to a DynamoDB item (with attribute type wrappers).
-   Stores the full object as a JSON string in the 'data' attribute,
+  "Convert a Clojure entity (ZDT-bearing) to a DynamoDB item.
+   Stores the entity as a JSON string in the 'data' attribute (the
+   JSONWriter protocol extension handles ZDT → UTC Z and Duration → ISO),
    plus top-level indexed fields as native DynamoDB attributes."
   [obj]
-  (let [event-start (get-in obj [:intervalPeriod :start])]
+  (let [es (event-start-key obj)]
     (cond-> {:objectType {:S (:objectType obj)}
              :id         {:S (:id obj)}
              :data       {:S (json/write-str obj)}}
       (:programName obj)     (assoc :programName {:S (:programName obj)})
       (:programID obj)       (assoc :programID {:S (:programID obj)})
       (:clientName obj)      (assoc :clientName {:S (:clientName obj)})
-      (:createdDateTime obj) (assoc :createdDateTime {:S (:createdDateTime obj)})
-      event-start            (assoc :eventStart {:S event-start}))))
+      (:createdDateTime obj) (assoc :createdDateTime
+                                    {:S (time/zdt->utc-z (:createdDateTime obj))})
+      es                     (assoc :eventStart {:S es}))))
 
 (defn- item->obj
-  "Convert a DynamoDB item back to a Clojure map by parsing the 'data' JSON."
+  "Convert a DynamoDB item back to a Clojure entity by parsing the 'data'
+   JSON and re-hydrating datetime/duration fields to ZDT / Duration."
   [item]
   (when-let [data (get-in item [:data :S])]
-    (json/read-str data :key-fn keyword)))
+    (-> (json/read-str data :key-fn keyword)
+        hydrate-datetimes)))
 
 (defn- put-item! [client table obj]
   (aws/invoke client {:op :PutItem
@@ -116,50 +166,98 @@
                  items remaining')
           items)))))
 
+;; ---------------------------------------------------------------------------
+;; Event query routing
+;;
+;; Two filter modes:
+;;   :explicit-range — caller supplied dateStart and/or dateEnd
+;;     (BETWEEN on eventStart GSI). Status-quo semantics.
+;;   :overlap-window — default; events whose [start, start+duration]
+;;     overlaps [active-from, active-until]. Implemented as a half-bounded
+;;     range scan on eventStart (eventStart <= active-until-z), then an
+;;     in-code filter for end >= active-from.
+;; ---------------------------------------------------------------------------
+
+(defn- explicit-range-request
+  "DDB query request for the BETWEEN-on-eventStart explicit-range mode."
+  [table program-id ds-z de-z]
+  (cond
+    (and program-id ds-z de-z)
+    {:TableName table
+     :IndexName "programID-eventStart-index"
+     :KeyConditionExpression "programID = :pid AND eventStart BETWEEN :ds AND :de"
+     :ExpressionAttributeValues {":pid" {:S program-id}
+                                 ":ds"  {:S ds-z}
+                                 ":de"  {:S de-z}}
+     :ScanIndexForward true}
+
+    (and ds-z de-z)
+    {:TableName table
+     :IndexName "objectType-eventStart-index"
+     :KeyConditionExpression "objectType = :ot AND eventStart BETWEEN :ds AND :de"
+     :ExpressionAttributeValues {":ot" {:S "EVENT"}
+                                 ":ds" {:S ds-z}
+                                 ":de" {:S de-z}}
+     :ScanIndexForward true}
+
+    program-id
+    {:TableName table
+     :IndexName "programID-index"
+     :KeyConditionExpression "programID = :pk"
+     :ExpressionAttributeValues {":pk" {:S program-id}}
+     :ScanIndexForward false}
+
+    :else
+    {:TableName table
+     :KeyConditionExpression "objectType = :ot"
+     :ExpressionAttributeValues {":ot" {:S "EVENT"}}
+     :ScanIndexForward false}))
+
+(defn- overlap-request
+  "DDB query request for the overlap-window mode: eventStart <= active-until,
+   in-code filter for end >= active-from after item materialisation."
+  [table program-id until-z]
+  (if program-id
+    {:TableName table
+     :IndexName "programID-eventStart-index"
+     :KeyConditionExpression "programID = :pid AND eventStart <= :until"
+     :ExpressionAttributeValues {":pid"   {:S program-id}
+                                 ":until" {:S until-z}}
+     :ScanIndexForward false}
+    {:TableName table
+     :IndexName "objectType-eventStart-index"
+     :KeyConditionExpression "objectType = :ot AND eventStart <= :until"
+     :ExpressionAttributeValues {":ot"    {:S "EVENT"}
+                                 ":until" {:S until-z}}
+     :ScanIndexForward false}))
+
+(defn- overlaps?
+  "True if the hydrated event's [start, start+duration] overlaps
+   [from-zdt, until-zdt]. Events without a start pass through."
+  [event from-zdt until-zdt]
+  (let [start    (get-in event [:intervalPeriod :start])
+        duration (get-in event [:intervalPeriod :duration])]
+    (or (nil? start)
+        (let [^ZonedDateTime end (if duration (.plus start duration) start)]
+          (and (not (.isAfter ^ZonedDateTime start until-zdt))
+               (not (.isBefore end from-zdt)))))))
+
 (defn- query-events-page-raw
-  "Query a page of events using eventStart GSIs for efficient date-range queries.
-   Falls back to legacy GSI/table query (capped) if eventStart GSI unavailable."
-  [client table program-id date-start date-end skip limit]
+  "Query a page of events. Caller provides canonical-string args for cache
+   stability. The two filter modes are mutually exclusive; both default
+   to nil if absent.
+
+   Falls back to a capped main-table scan if the GSI is unavailable
+   (local DynamoDB / ensure-table not run)."
+  [client table program-id mode ds-z de-z from-z until-z skip limit]
   (let [fetch-count (+ skip limit)
-        request
-        (cond
-          ;; Per-program with date range → programID-eventStart-index
-          (and program-id date-start date-end)
-          {:TableName table
-           :IndexName "programID-eventStart-index"
-           :KeyConditionExpression "programID = :pid AND eventStart BETWEEN :ds AND :de"
-           :ExpressionAttributeValues {":pid" {:S program-id}
-                                       ":ds"  {:S date-start}
-                                       ":de"  {:S date-end}}
-           :ScanIndexForward true}
-
-          ;; Per-program, no date range → existing programID-index (capped)
-          program-id
-          {:TableName table
-           :IndexName "programID-index"
-           :KeyConditionExpression "programID = :pk"
-           :ExpressionAttributeValues {":pk" {:S program-id}}
-           :ScanIndexForward false}
-
-          ;; All events with date range → objectType-eventStart-index
-          (and date-start date-end)
-          {:TableName table
-           :IndexName "objectType-eventStart-index"
-           :KeyConditionExpression "objectType = :ot AND eventStart BETWEEN :ds AND :de"
-           :ExpressionAttributeValues {":ot" {:S "EVENT"}
-                                       ":ds" {:S date-start}
-                                       ":de" {:S date-end}}
-           :ScanIndexForward true}
-
-          ;; All events, no filter → main table (capped, never load all 30K)
-          :else
-          {:TableName table
-           :KeyConditionExpression "objectType = :ot"
-           :ExpressionAttributeValues {":ot" {:S "EVENT"}}
-           :ScanIndexForward false})
-
-        resp (aws/invoke client {:op :Query :request (assoc request :Limit fetch-count)})]
-    ;; Check for GSI not found — fall back to capped main table query
+        request     (case mode
+                      :overlap-window (overlap-request table program-id until-z)
+                      :explicit-range (explicit-range-request table program-id ds-z de-z)
+                      ;; no window — list-by-program or list-all
+                      (explicit-range-request table program-id nil nil))
+        resp        (aws/invoke client {:op :Query
+                                        :request (assoc request :Limit fetch-count)})]
     (if (:cognitect.anomalies/category resp)
       (do (mu/log ::gsi-fallback :anomaly (:cognitect.anomalies/category resp)
                   :index (:IndexName request)
@@ -177,19 +275,21 @@
                (mapv item->obj)
                (drop skip)
                vec))
-      ;; GSI query succeeded — may still need pagination across DynamoDB pages
-      (let [items  (:Items resp [])
-            lek    (:LastEvaluatedKey resp)
-            needed (- fetch-count (count items))
+      (let [items     (:Items resp [])
+            lek       (:LastEvaluatedKey resp)
+            needed    (- fetch-count (count items))
             all-items (if (and (pos? needed) lek)
-                        (into items
-                              (query-limited-pages
-                               client (assoc request :ExclusiveStartKey lek) needed))
-                        items)]
-        (->> all-items
-             (mapv item->obj)
-             (drop skip)
-             vec)))))
+                        (into items (query-limited-pages
+                                     client (assoc request :ExclusiveStartKey lek) needed))
+                        items)
+            hydrated  (mapv item->obj all-items)
+            filtered  (case mode
+                        :overlap-window
+                        (let [from-zdt  (time/parse-zdt from-z)
+                              until-zdt (time/parse-zdt until-z)]
+                          (filterv #(overlaps? % from-zdt until-zdt) hydrated))
+                        hydrated)]
+        (->> filtered (drop skip) vec)))))
 
 (defn- paginate
   "Apply skip/limit to a collection."
@@ -225,8 +325,7 @@
 
 (defn- make-caches
   "Create memoized query functions with TTL caches.
-   Events are cached per-page keyed by (programID, date-range, skip, limit)
-   instead of caching all events in a single entry."
+   Events are cached per-page keyed by canonical-string query args."
   [client table cfg]
   (let [prog-ttl  (or (:cache-program-ttl-ms cfg) default-program-ttl-ms)
         event-ttl (or (:cache-event-ttl-ms cfg) default-event-ttl-ms)]
@@ -235,8 +334,8 @@
                :ttl/threshold prog-ttl)
 
      :events-page-fn
-     (memo/ttl (fn [_table pid ds de skip limit]
-                 (query-events-page-raw client table pid ds de skip limit))
+     (memo/ttl (fn [_table pid mode ds-z de-z from-z until-z skip limit]
+                 (query-events-page-raw client table pid mode ds-z de-z from-z until-z skip limit))
                :ttl/threshold event-ttl)}))
 
 (defn- invalidate-programs! [{:keys [programs-fn]}]
@@ -350,14 +449,23 @@
       (when result (invalidate-programs! caches))
       result))
 
-  ;; Events — cached per-page with date-range filtering via eventStart GSIs
+  ;; Events — cached per-page with date-range or overlap filtering.
+  ;; Cache keys are canonical UTC Z strings so identical-instant queries
+  ;; coalesce regardless of caller-side zone differences.
   (list-events [_ opts]
-    (let [skip  (or (:skip opts) 0)
-          limit (or (:limit opts) 50)
-          pid   (:programID opts)
-          ds    (:date-start opts)
-          de    (:date-end opts)]
-      ((:events-page-fn caches) table pid ds de skip limit)))
+    (let [skip   (or (:skip opts) 0)
+          limit  (or (:limit opts) 50)
+          pid    (:programID opts)
+          {:keys [date-start date-end active-from active-until]} opts
+          mode   (cond
+                   (or active-from active-until) :overlap-window
+                   (or date-start date-end)      :explicit-range
+                   :else                         nil)
+          ds-z   (some-> date-start time/zdt->utc-z)
+          de-z   (some-> date-end time/zdt->utc-z)
+          from-z (some-> active-from time/zdt->utc-z)
+          until-z (some-> active-until time/zdt->utc-z)]
+      ((:events-page-fn caches) table pid mode ds-z de-z from-z until-z skip limit)))
 
   (get-event [_ id]
     (get-item client table "EVENT" id))

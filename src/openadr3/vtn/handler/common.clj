@@ -1,5 +1,11 @@
 (ns openadr3.vtn.handler.common
-  "Shared handler utilities: ID generation, metadata, pagination, error responses."
+  "Shared handler utilities: ID generation, metadata, body coercion,
+  pagination, search-window construction, error responses.
+
+  The VTN's storage layer is canonically `ZonedDateTime` / `Duration`.
+  Wire-format request bodies arrive with string datetimes (parsed JSON);
+  the `coerce-*-body` helpers here normalise them to the storage canon
+  before reaching `add-metadata` and the storage protocol."
   (:require [openadr3.vtn.time :as time]
             [com.brunobonacci.mulog :as mu])
   (:import [java.util UUID]))
@@ -11,13 +17,44 @@
   []
   (str (UUID/randomUUID)))
 
+;; --- Body coercion (wire strings → storage canon) ---
+
+(defn- coerce-interval-period
+  "Parse string :start to ZonedDateTime and string :duration / :randomizeStart
+   to Duration. Idempotent — already-parsed values pass through."
+  [ip]
+  (when ip
+    (cond-> ip
+      (some? (:start ip))          (update :start time/parse-zdt-maybe)
+      (some? (:duration ip))       (update :duration time/parse-duration-maybe)
+      (some? (:randomizeStart ip)) (update :randomizeStart time/parse-duration-maybe))))
+
+(defn- coerce-interval [iv]
+  (cond-> iv
+    (:intervalPeriod iv) (update :intervalPeriod coerce-interval-period)))
+
+(defn coerce-event-body
+  "Parse string datetime/duration fields in an EVENT request body to the
+   storage canon (ZonedDateTime / Duration). Idempotent."
+  [body]
+  (cond-> body
+    (:intervalPeriod body) (update :intervalPeriod coerce-interval-period)
+    (:intervals body)      (update :intervals (fn [is] (mapv coerce-interval is)))))
+
+(defn coerce-program-body
+  "Parse string datetime/duration fields in a PROGRAM request body."
+  [body]
+  (cond-> body
+    (:intervalPeriod body) (update :intervalPeriod coerce-interval-period)))
+
 ;; --- Object metadata ---
 
 (defn add-metadata
-  "Add objectMetadata fields to a raw request body.
-   Sets id, createdDateTime, modificationDateTime, and objectType."
+  "Add objectMetadata fields to a request body.
+   Sets id, createdDateTime, modificationDateTime (both ZonedDateTime),
+   and objectType."
   [body object-type]
-  (let [now (time/now-rfc3339)]
+  (let [now (time/now-zdt)]
     (assoc body
            :id (new-id)
            :createdDateTime now
@@ -26,14 +63,14 @@
 
 (defn touch-metadata
   "Merge update body into stored object, preserving metadata fields.
-   The update body overrides stored fields, but id, createdDateTime,
-   objectType are always preserved from stored. modificationDateTime
-   is set to now."
+   The update body overrides stored fields, but id, createdDateTime, and
+   objectType are always preserved from stored. modificationDateTime is
+   set to now (ZonedDateTime)."
   [stored updated]
   (-> (merge stored updated)
       (assoc :id (:id stored)
              :createdDateTime (:createdDateTime stored)
-             :modificationDateTime (time/now-rfc3339)
+             :modificationDateTime (time/now-zdt)
              :objectType (:objectType stored))))
 
 ;; --- Pagination ---
@@ -74,20 +111,40 @@
       skip  (assoc :skip skip)
       limit (assoc :limit (min limit 50)))))
 
-;; --- Event date range ---
+;; --- Event search window ---
+;;
+;; Two search modes, both zone-neutral:
+;;
+;; 1. Caller supplied dateStart/dateEnd → :date-start / :date-end
+;;    (ZonedDateTimes). Storage filters events whose intervalPeriod.start
+;;    falls within [date-start, date-end] (status-quo BETWEEN semantics on
+;;    the eventStart GSI).
+;;
+;; 2. No range supplied → :active-from / :active-until
+;;    (ZonedDateTimes, defaulting to [now, now + 2d]). Storage filters
+;;    events whose [start, start+duration] overlaps this window — works
+;;    in any deployment zone, no UTC midnight assumption.
 
-(defn event-date-range
-  "Extract explicit dateStart/dateEnd from query params, or default to
-   today-start → tomorrow-end (UTC). Returns [date-start date-end]."
+(def ^:private default-window-days 2)
+
+(defn event-search-window
+  "Build a search-window opts map for /events listing.
+
+   When dateStart and/or dateEnd are present in the query, returns a map
+   with :date-start / :date-end as ZonedDateTimes (BETWEEN semantics).
+   Otherwise returns a map with :active-from / :active-until set to
+   [now, now + 2 days] for zone-neutral overlap semantics."
   [query-params]
   (let [ds (get-param query-params :dateStart)
         de (get-param query-params :dateEnd)]
     (if (or ds de)
-      [ds de]
-      (let [default-ds (time/today-start)
-            default-de (time/tomorrow-end)]
-        (mu/log ::default-event-date-range :date-start default-ds :date-end default-de)
-        [default-ds default-de]))))
+      (cond-> {}
+        ds (assoc :date-start (time/parse-zdt-maybe ds))
+        de (assoc :date-end   (time/parse-zdt-maybe de)))
+      (let [now    (time/now-zdt)
+            until  (time/plus-days now default-window-days)]
+        (mu/log ::default-event-window :active-from now :active-until until)
+        {:active-from now :active-until until}))))
 
 ;; --- Error responses (RFC 9457 Problem Details) ---
 

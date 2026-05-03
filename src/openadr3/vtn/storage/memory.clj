@@ -1,9 +1,14 @@
 (ns openadr3.vtn.storage.memory
-  "Atom-backed storage implementation with optional file persistence via duratom."
+  "Atom-backed storage implementation with optional file persistence via duratom.
+
+  Holds entities canonically: datetime fields are `ZonedDateTime`,
+  duration fields are `Duration`. The handler layer coerces incoming
+  request bodies to this shape before reaching storage."
   (:require [com.stuartsierra.component :as component]
             [com.brunobonacci.mulog :as mu]
             [duratom.core :as duratom]
-            [openadr3.vtn.storage :as storage]))
+            [openadr3.vtn.storage :as storage])
+  (:import [java.time Duration ZonedDateTime]))
 
 (def ^:private empty-store {:programs {} :events {} :subscriptions {}})
 
@@ -17,6 +22,36 @@
         (some (fn [ft]
                 (obj-targets [(:type ft) (first (:values ft))]))
               filter-targets))))
+
+(defn- zdt<= [^ZonedDateTime a ^ZonedDateTime b]
+  (not (.isAfter a b)))
+
+(defn- zdt>= [^ZonedDateTime a ^ZonedDateTime b]
+  (not (.isBefore a b)))
+
+(defn- in-explicit-range?
+  "BETWEEN semantics: event's intervalPeriod.start is in [date-start, date-end].
+   Events without intervalPeriod pass through. Either bound may be nil."
+  [event date-start date-end]
+  (let [es (get-in event [:intervalPeriod :start])]
+    (or (nil? es)
+        (and (or (nil? date-start) (zdt>= es date-start))
+             (or (nil? date-end)   (zdt<= es date-end))))))
+
+(defn- overlaps-window?
+  "Overlap semantics: event's [start, start+duration] overlaps
+   [active-from, active-until]. Events without intervalPeriod.start
+   pass through (no time data to filter on). When duration is nil,
+   the event is treated as instantaneous (end = start)."
+  [event ^ZonedDateTime active-from ^ZonedDateTime active-until]
+  (let [start    (get-in event [:intervalPeriod :start])
+        duration (get-in event [:intervalPeriod :duration])]
+    (or (nil? start)
+        (let [^ZonedDateTime end (if duration
+                                   (.plus start ^Duration duration)
+                                   start)]
+          (and (zdt<= start active-until)
+               (zdt>= end   active-from))))))
 
 (defn- filter-and-paginate
   "Filter a collection of objects by predicate, then apply skip/limit."
@@ -93,22 +128,24 @@
 
   ;; Events
   (list-events [_ opts]
-    (filter-and-paginate
-     (:events @state)
-     (fn [e]
-       (and (if-let [pid (:programID opts)]
-              (= pid (:programID e))
-              true)
-            (if-let [ds (:date-start opts)]
-              (let [es (get-in e [:intervalPeriod :start])]
-                (or (nil? es) ;; events without intervalPeriod pass through
-                    (and (>= (compare es ds) 0)
-                         (if-let [de (:date-end opts)]
-                           (<= (compare es de) 0)
-                           true))))
-              true)
-            (match-targets? e (:targets opts))))
-     opts))
+    (let [{:keys [date-start date-end active-from active-until]} opts
+          window-pred (cond
+                        (or active-from active-until)
+                        (fn [e] (overlaps-window? e active-from active-until))
+
+                        (or date-start date-end)
+                        (fn [e] (in-explicit-range? e date-start date-end))
+
+                        :else (constantly true))]
+      (filter-and-paginate
+       (:events @state)
+       (fn [e]
+         (and (if-let [pid (:programID opts)]
+                (= pid (:programID e))
+                true)
+              (window-pred e)
+              (match-targets? e (:targets opts))))
+       opts)))
 
   (get-event [_ id]
     (get-in @state [:events id]))
